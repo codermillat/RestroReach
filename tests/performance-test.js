@@ -71,6 +71,7 @@ class DeliveryAgentSimulator {
                 redirect_to: '',
                 testcookie: '1'
             });
+            const loginDataString = loginData.toString();
 
             const options = {
                 hostname: CONFIG.host,
@@ -79,7 +80,7 @@ class DeliveryAgentSimulator {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': Buffer.byteLength(loginData)
+                    'Content-Length': Buffer.byteLength(loginDataString)
                 }
             };
 
@@ -95,7 +96,7 @@ class DeliveryAgentSimulator {
             });
 
             req.on('error', reject);
-            req.write(loginData);
+            req.write(loginDataString);
             req.end();
         });
     }
@@ -153,6 +154,7 @@ class DeliveryAgentSimulator {
     async makeAjaxRequest(formData, requestType) {
         return new Promise((resolve, reject) => {
             const startTime = performance.now();
+            const formDataString = formData.toString();
 
             const options = {
                 hostname: CONFIG.host,
@@ -161,7 +163,7 @@ class DeliveryAgentSimulator {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Content-Length': Buffer.byteLength(formData),
+                    'Content-Length': Buffer.byteLength(formDataString),
                     'Cookie': this.sessionCookie || '',
                     'User-Agent': 'RestroReach-Performance-Test/1.0'
                 }
@@ -209,7 +211,7 @@ class DeliveryAgentSimulator {
                 reject(error);
             });
 
-            req.write(formData);
+            req.write(formDataString);
             req.end();
         });
     }

@@ -1,11 +1,5 @@
 ---
-description: "Google Maps API integration with cost optimization, GPS tracking, geocoding caching, and battery-efficient location updates"
-globs: ["includes/class-rdm-google-maps.php", "includes/class-rdm-gps-tracking.php", "assets/js/rdm-*maps*.js", "assets/js/rdm-customer-tracking.js"]
-alwaysApply: false
----
----
-description: "Google Maps API integration with cost optimization, GPS tracking, geocoding caching, and battery-efficient location updates"
-globs: ["includes/class-rdm-google-maps.php", "assets/js/rdm-google-maps.js", "templates/customer-tracking.php"]
+description: Google Maps API integration with cost optimization, GPS tracking, geocoding caching, and battery-efficient location updates
 alwaysApply: false
 ---
 

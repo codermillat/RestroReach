@@ -1,12 +1,5 @@
 ---
 description: "WooCommerce integration patterns for restaurant delivery system - custom order statuses, HPOS compatibility, shipping methods"
-globs: ["includes/class-woocommerce-integration.php", "includes/class-distance-shipping.php", "templates/admin/order-*.php"]
-alwaysApply: false
----
-
----
-description: "WooCommerce integration patterns for restaurant delivery system - custom order statuses, HPOS compatibility, shipping methods"
-globs: ["includes/class-woocommerce-integration.php", "includes/class-distance-shipping.php", "templates/admin/order-*.php"]
 alwaysApply: false
 ---
 

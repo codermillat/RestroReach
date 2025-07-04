@@ -1,11 +1,5 @@
 ---
 description: "Progressive Web App development for mobile delivery agents - touch-optimized UI, offline capabilities, GPS tracking, battery optimization"
-globs: ["templates/mobile-agent/**", "assets/js/rdm-mobile-agent.js", "assets/css/rdm-mobile-agent.css", "includes/class-rdm-mobile-frontend.php"]
-alwaysApply: false
----
----
-description: "Progressive Web App development for mobile delivery agents - touch-optimized UI, offline capabilities, GPS tracking, battery optimization"
-globs: ["templates/mobile-agent/*.php", "assets/css/rdm-mobile-agent.css", "assets/js/rdm-mobile-agent.js", "includes/class-rdm-mobile-frontend.php"]
 alwaysApply: false
 ---
 
