@@ -1,0 +1,409 @@
+/**
+ * RestroReach Admin Tools Styles
+ *
+ * Professional styling for database management tools
+ */
+
+/* Main container */
+.rr-admin-tools-container {
+    max-width: 1200px;
+    margin: 20px 0;
+}
+
+/* Card styling */
+.rr-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.rr-card h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+    color: #333;
+}
+
+.rr-card h3 {
+    margin-top: 20px;
+    color: #555;
+}
+
+/* Status grid */
+.rr-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.rr-status-item {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 6px;
+    border-left: 4px solid #2271b1;
+}
+
+.rr-status-item .label {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.rr-status-item .value {
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Badges */
+.rr-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 3px;
+    text-transform: uppercase;
+    margin-left: 10px;
+}
+
+.rr-badge-success {
+    background: #46b450;
+    color: #fff;
+}
+
+.rr-badge-warning {
+    background: #f0b849;
+    color: #fff;
+}
+
+.rr-badge-error {
+    background: #dc3545;
+    color: #fff;
+}
+
+.rr-badge-info {
+    background: #2271b1;
+    color: #fff;
+}
+
+/* Results container */
+.rr-results-container {
+    margin-top: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.rr-results-content h3,
+.rr-results-content h4 {
+    margin-top: 0;
+}
+
+/* Test results styling */
+.rr-test-summary {
+    background: #fff;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.rr-test-summary p {
+    margin: 5px 0;
+}
+
+.rr-test-details {
+    margin-top: 20px;
+}
+
+.rr-test-item {
+    background: #fff;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 6px;
+    border-left: 4px solid #ddd;
+}
+
+.rr-test-passed {
+    border-left-color: #46b450;
+}
+
+.rr-test-failed {
+    border-left-color: #dc3545;
+}
+
+.rr-test-warning {
+    border-left-color: #f0b849;
+}
+
+.rr-test-item h5 {
+    margin: 0 0 10px 0;
+    color: #333;
+}
+
+.rr-test-message {
+    margin: 10px 0;
+    color: #666;
+}
+
+.rr-test-errors {
+    margin: 10px 0 10px 20px;
+    color: #dc3545;
+}
+
+/* Success/Error messages */
+.rr-success-message {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+    padding: 15px;
+    border-radius: 6px;
+}
+
+.rr-success-message h4 {
+    margin-top: 0;
+}
+
+.rr-error-message {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 15px;
+    border-radius: 6px;
+}
+
+/* Warning box */
+.rr-warning-box {
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    color: #856404;
+    padding: 15px;
+    border-radius: 6px;
+    margin: 15px 0;
+}
+
+.rr-warning-box p {
+    margin: 0;
+}
+
+/* Danger zone */
+.rr-danger-zone {
+    border-color: #dc3545;
+}
+
+.rr-danger-zone h2 {
+    color: #dc3545;
+    border-bottom-color: #dc3545;
+}
+
+.rr-danger-box {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    padding: 20px;
+    border-radius: 6px;
+    margin-top: 20px;
+}
+
+.rr-danger-box h3 {
+    margin-top: 0;
+    color: #721c24;
+}
+
+/* Buttons */
+.button-danger {
+    background: #dc3545;
+    border-color: #dc3545;
+    color: #fff;
+}
+
+.button-danger:hover {
+    background: #c82333;
+    border-color: #bd2130;
+    color: #fff;
+}
+
+/* Inline form */
+.rr-inline-form {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 15px 0;
+}
+
+.rr-inline-form label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.rr-inline-form input[type="number"] {
+    width: 80px;
+}
+
+/* Health check results */
+.rr-health-check-summary {
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.rr-status-healthy {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.rr-status-warning {
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    color: #856404;
+}
+
+.rr-status-unhealthy {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.rr-health-check-details {
+    display: grid;
+    gap: 15px;
+}
+
+.rr-check-item {
+    background: #fff;
+    padding: 15px;
+    border-radius: 6px;
+    border-left: 4px solid #ddd;
+}
+
+.rr-check-passed {
+    border-left-color: #46b450;
+}
+
+.rr-check-failed {
+    border-left-color: #dc3545;
+}
+
+.rr-check-warning {
+    border-left-color: #f0b849;
+}
+
+.rr-check-info {
+    border-left-color: #2271b1;
+}
+
+/* Table sizes */
+.rr-table-sizes {
+    width: 100%;
+    margin-top: 10px;
+    border-collapse: collapse;
+}
+
+.rr-table-sizes td {
+    padding: 5px 10px;
+    border-bottom: 1px solid #eee;
+}
+
+/* Logs container */
+.rr-logs-container {
+    margin-top: 15px;
+}
+
+.rr-logs-container details {
+    margin-top: 10px;
+}
+
+.rr-logs-container summary {
+    cursor: pointer;
+    color: #2271b1;
+}
+
+.rr-logs-container pre {
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 12px;
+    margin-top: 10px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .rr-status-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .rr-inline-form {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* WordPress admin compatibility */
+.rr-admin-tools .widefat td,
+.rr-admin-tools .widefat th {
+    padding: 10px;
+}
+
+.rr-admin-tools .widefat thead th {
+    font-weight: 600;
+}
+
+/* Utility classes */
+.rr-success {
+    color: #46b450;
+}
+
+.rr-error {
+    color: #dc3545;
+}
+
+.rr-warning {
+    color: #f0b849;
+}
+
+/* Loading states */
+.button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Animations */
+.rr-results-container {
+    transition: all 0.3s ease-in-out;
+}
+
+/* Details/Summary styling */
+details {
+    margin-top: 10px;
+}
+
+summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #2271b1;
+    margin-bottom: 10px;
+}
+
+summary:hover {
+    color: #135e96;
+}
+
+/* Print friendly */
+@media print {
+    .rr-card {
+        page-break-inside: avoid;
+    }
+    
+    button,
+    .button {
+        display: none;
+    }
+} 

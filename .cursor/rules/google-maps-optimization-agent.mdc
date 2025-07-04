@@ -1,0 +1,679 @@
+---
+description: "Google Maps API integration with cost optimization, GPS tracking, geocoding caching, and battery-efficient location updates"
+globs: ["includes/class-rdm-google-maps.php", "includes/class-rdm-gps-tracking.php", "assets/js/rdm-*maps*.js", "assets/js/rdm-customer-tracking.js"]
+alwaysApply: false
+---
+---
+description: "Google Maps API integration with cost optimization, GPS tracking, geocoding caching, and battery-efficient location updates"
+globs: ["includes/class-rdm-google-maps.php", "assets/js/rdm-google-maps.js", "templates/customer-tracking.php"]
+alwaysApply: false
+---
+
+# Google Maps Optimization Rules - Restaurant Delivery System
+
+## 🎯 Context: Cost-Optimized Maps Integration
+This rule applies when working with Google Maps API integration, GPS tracking, location services, and real-time mapping features for the RestroReach system.
+
+## 💰 Cost Optimization Strategy (Current: Essentials Tier)
+```
+Essentials Tier: 10,000 free API calls/month
+Current Usage: ~2,000-3,000 calls/month (optimized)
+Target: Stay under 8,000 calls/month for safety margin
+```
+
+## 🗺️ API Usage Patterns (Implemented)
+
+### Required APIs and Usage
+```javascript
+// Maps JavaScript API - Core mapping functionality
+// Usage: Map initialization, marker placement, info windows
+// Optimization: Single map instance per page, marker clustering
+
+// Geocoding API - Address to coordinates conversion  
+// Usage: Restaurant and customer address geocoding
+// Optimization: 24-hour caching, batch processing
+// Cache Keys: 'rdm_geocode_' + md5(address)
+
+// Distance Matrix API - Route distance and duration
+// Usage: Delivery fee calculation, ETA estimation
+// Optimization: Cache results for 24 hours, fallback to geocoding
+// Cache Keys: 'rdm_distance_' + md5(origin . '|' . destination)
+
+// Places API (Autocomplete) - Address validation
+// Usage: Customer address input enhancement
+// Optimization: Restrict to delivery areas, session tokens
+```
+
+### API Key Management Pattern
+```php
+// ALWAYS validate API key before making requests
+public static function get_api_key(): ?string {
+    $options = get_option('rdm_plugin_options', array());
+    $api_key = isset($options['rdm_google_maps_api_key']) ? sanitize_text_field($options['rdm_google_maps_api_key']) : '';
+    
+    return !empty($api_key) ? $api_key : null;
+}
+
+// ALWAYS check API key validity before operations
+public static function is_enabled(): bool {
+    $api_key = self::get_api_key();
+    return !empty($api_key) && self::validate_api_key($api_key);
+}
+
+// API key testing with specific address
+public static function test_api_key(string $api_key = ''): array {
+    $api_key = !empty($api_key) ? $api_key : self::get_api_key();
+    
+    if (empty($api_key)) {
+        return array(
+            'success' => false,
+            'message' => __('No API key provided', 'restaurant-delivery-manager')
+        );
+    }
+    
+    // Test with a known address
+    $test_address = '1600 Amphitheatre Parkway, Mountain View, CA';
+    $result = self::geocode_address($test_address, $api_key);
+    
+    return array(
+        'success' => !empty($result),
+        'message' => !empty($result) 
+            ? __('API key is valid and working', 'restaurant-delivery-manager')
+            : __('API key is invalid or has insufficient permissions', 'restaurant-delivery-manager')
+    );
+}
+```
+
+## 📍 Geocoding with Caching (Cost Optimization)
+
+### Geocoding Pattern with 24-Hour Cache
+```php
+// Primary geocoding method with caching
+public static function geocode_address(string $address, string $api_key = ''): ?array {
+    if (empty($address)) {
+        return null;
+    }
+    
+    // Generate cache key
+    $cache_key = 'rdm_geocode_' . md5($address);
+    
+    // Check cache first (24-hour expiration)
+    $cached_result = get_transient($cache_key);
+    if ($cached_result !== false) {
+        return $cached_result;
+    }
+    
+    // Use provided API key or get from settings
+    $api_key = !empty($api_key) ? $api_key : self::get_api_key();
+    if (empty($api_key)) {
+        return null;
+    }
+    
+    // Make API request
+    $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query(array(
+        'address' => $address,
+        'key' => $api_key,
+    ));
+    
+    $response = wp_remote_get($url, array(
+        'timeout' => 15,
+        'user-agent' => 'RestroReach/' . RDM_VERSION,
+    ));
+    
+    if (is_wp_error($response)) {
+        return null;
+    }
+    
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+    
+    if (empty($data['results'])) {
+        // Cache null result for 1 hour to avoid repeated failed requests
+        set_transient($cache_key, null, HOUR_IN_SECONDS);
+        return null;
+    }
+    
+    $result = array(
+        'lat' => $data['results'][0]['geometry']['location']['lat'],
+        'lng' => $data['results'][0]['geometry']['location']['lng'],
+        'formatted_address' => $data['results'][0]['formatted_address'],
+    );
+    
+    // Cache successful result for 24 hours
+    set_transient($cache_key, $result, DAY_IN_SECONDS);
+    
+    return $result;
+}
+```
+
+### Restaurant Coordinates (7-Day Cache)
+```php
+// Restaurant coordinates with extended caching
+public static function get_restaurant_coordinates(): ?array {
+    $cache_key = 'rdm_restaurant_coordinates';
+    
+    // Check cache first (7-day expiration for restaurant location)
+    $cached_coords = get_transient($cache_key);
+    if ($cached_coords !== false) {
+        return $cached_coords;
+    }
+    
+    // Get restaurant address from settings
+    $restaurant_address = self::get_restaurant_address();
+    if (empty($restaurant_address)) {
+        // Cache null for 1 hour to avoid repeated checks
+        set_transient($cache_key, null, HOUR_IN_SECONDS);
+        return null;
+    }
+    
+    // Geocode restaurant address
+    $coords = self::geocode_address($restaurant_address);
+    
+    if ($coords) {
+        // Cache for 7 days - restaurant location rarely changes
+        set_transient($cache_key, $coords, 7 * DAY_IN_SECONDS);
+    } else {
+        // Cache null for 1 hour on failure
+        set_transient($cache_key, null, HOUR_IN_SECONDS);
+    }
+    
+    return $coords;
+}
+```
+
+## 📏 Distance Calculation with Fallback
+
+### Distance Matrix API with Geocoding Fallback
+```php
+// Primary distance calculation with API optimization
+public function calculate_distance(string $origin, string $destination): ?float {
+    if (empty($origin) || empty($destination)) {
+        return null;
+    }
+    
+    // Generate cache key for distance calculation
+    $cache_key = 'rdm_distance_' . md5($origin . '|' . $destination);
+    
+    // Check cache first (24-hour expiration)
+    $cached_distance = get_transient($cache_key);
+    if ($cached_distance !== false) {
+        return $cached_distance;
+    }
+    
+    $distance = null;
+    $api_key = self::get_api_key();
+    
+    if ($api_key) {
+        // Try Distance Matrix API first (more accurate but costs more)
+        $distance = $this->calculate_distance_matrix($origin, $destination, $api_key);
+    }
+    
+    if (!$distance) {
+        // Fallback to geocoding calculation (cheaper but less accurate)
+        $distance = $this->calculate_distance_geocoding($origin, $destination);
+    }
+    
+    if ($distance) {
+        // Cache successful result for 24 hours
+        set_transient($cache_key, $distance, DAY_IN_SECONDS);
+    }
+    
+    return $distance;
+}
+
+// Distance Matrix API method
+private function calculate_distance_matrix(string $origin, string $destination, string $api_key): ?float {
+    $url = 'https://maps.googleapis.com/maps/api/distancematrix/json?' . http_build_query(array(
+        'origins' => $origin,
+        'destinations' => $destination,
+        'units' => 'metric',
+        'mode' => 'driving',
+        'key' => $api_key,
+    ));
+    
+    $response = wp_remote_get($url, array('timeout' => 15));
+    
+    if (is_wp_error($response)) {
+        return null;
+    }
+    
+    $data = json_decode(wp_remote_retrieve_body($response), true);
+    
+    if (empty($data['rows'][0]['elements'][0]['distance']['value'])) {
+        return null;
+    }
+    
+    // Convert meters to kilometers
+    return round($data['rows'][0]['elements'][0]['distance']['value'] / 1000, 2);
+}
+
+// Geocoding fallback method (cheaper API usage)
+private function calculate_distance_geocoding(string $origin, string $destination): ?float {
+    $origin_coords = self::geocode_address($origin);
+    $destination_coords = self::geocode_address($destination);
+    
+    if (!$origin_coords || !$destination_coords) {
+        return null;
+    }
+    
+    // Calculate straight-line distance with 20% buffer for actual roads
+    $distance = $this->calculate_haversine_distance(
+        $origin_coords['lat'],
+        $origin_coords['lng'],
+        $destination_coords['lat'],
+        $destination_coords['lng']
+    );
+    
+    // Add 20% buffer to account for actual road distance
+    return round($distance * 1.2, 2);
+}
+```
+
+## 🔋 GPS Tracking (Battery Optimized)
+
+### Battery-Efficient Location Tracking
+```javascript
+// GPS tracking with battery optimization
+class RDMGPSTracker {
+    constructor() {
+        this.updateInterval = 45000; // 45 seconds default
+        this.watchId = null;
+        this.lastUpdate = null;
+        this.batteryLevel = null;
+        
+        // Monitor battery status if available
+        this.initBatteryMonitoring();
+    }
+    
+    // Initialize battery monitoring
+    async initBatteryMonitoring() {
+        if ('getBattery' in navigator) {
+            try {
+                const battery = await navigator.getBattery();
+                this.batteryLevel = Math.round(battery.level * 100);
+                
+                // Adjust tracking frequency based on battery level
+                battery.addEventListener('levelchange', () => {
+                    this.batteryLevel = Math.round(battery.level * 100);
+                    this.adjustTrackingFrequency();
+                });
+                
+                battery.addEventListener('chargingchange', () => {
+                    this.adjustTrackingFrequency();
+                });
+            } catch (error) {
+                console.warn('Battery API not available:', error);
+            }
+        }
+    }
+    
+    // Adjust tracking frequency based on battery level
+    adjustTrackingFrequency() {
+        if (!this.batteryLevel) return;
+        
+        let newInterval;
+        if (this.batteryLevel > 50) {
+            newInterval = 45000; // 45 seconds - normal
+        } else if (this.batteryLevel > 20) {
+            newInterval = 60000; // 1 minute - conservative
+        } else {
+            newInterval = 120000; // 2 minutes - power saving
+        }
+        
+        if (newInterval !== this.updateInterval) {
+            this.updateInterval = newInterval;
+            this.restartTracking();
+        }
+    }
+    
+    // Start location tracking
+    startTracking() {
+        if (!navigator.geolocation) {
+            console.error('Geolocation not available');
+            return;
+        }
+        
+        // Use watchPosition for continuous tracking
+        this.watchId = navigator.geolocation.watchPosition(
+            position => this.handleLocationUpdate(position),
+            error => this.handleLocationError(error),
+            {
+                enableHighAccuracy: false, // Battery optimization
+                timeout: 15000,
+                maximumAge: 60000 // Cache position for 1 minute
+            }
+        );
+        
+        // Also set interval for forced updates
+        this.intervalId = setInterval(() => {
+            this.getCurrentLocation();
+        }, this.updateInterval);
+    }
+    
+    // Handle location update
+    handleLocationUpdate(position) {
+        const locationData = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: new Date().toISOString(),
+            battery_level: this.batteryLevel
+        };
+        
+        // Send to server
+        this.sendLocationUpdate(locationData);
+        this.lastUpdate = Date.now();
+    }
+    
+    // Send location update to server
+    async sendLocationUpdate(locationData) {
+        try {
+            const formData = new FormData();
+            formData.append('action', 'rdm_update_location');
+            formData.append('latitude', locationData.latitude);
+            formData.append('longitude', locationData.longitude);
+            formData.append('accuracy', locationData.accuracy);
+            formData.append('battery_level', locationData.battery_level);
+            formData.append('nonce', rdmGPSConfig.nonce);
+            
+            const response = await fetch(rdmGPSConfig.ajax_url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            });
+            
+            const data = await response.json();
+            if (!data.success) {
+                console.error('Location update failed:', data.data);
+            }
+        } catch (error) {
+            console.error('Failed to send location update:', error);
+            // Queue for retry when connection is restored
+            this.queueLocationUpdate(locationData);
+        }
+    }
+}
+```
+
+## 🗺️ JavaScript Map Integration Patterns
+
+### Customer Tracking Map Initialization
+```javascript
+// Initialize tracking map with optimized settings
+function initTrackingMap() {
+    // Validate tracking data
+    if (!window.rdmTrackingData || !window.rdmTrackingData.locations) {
+        document.getElementById('rdm-tracking-map').innerHTML = 
+            '<div class="rdm-map-error">Map data not available</div>';
+        return;
+    }
+    
+    // Calculate center point between restaurant and customer
+    const restaurant = {
+        lat: parseFloat(window.rdmTrackingData.locations.restaurant.lat),
+        lng: parseFloat(window.rdmTrackingData.locations.restaurant.lng)
+    };
+    
+    const customer = {
+        lat: parseFloat(window.rdmTrackingData.locations.customer.lat),
+        lng: parseFloat(window.rdmTrackingData.locations.customer.lng)
+    };
+    
+    const center = {
+        lat: (restaurant.lat + customer.lat) / 2,
+        lng: (restaurant.lng + customer.lng) / 2
+    };
+    
+    // Initialize map with cost-optimized settings
+    const map = new google.maps.Map(document.getElementById('rdm-tracking-map'), {
+        zoom: 13,
+        center: center,
+        mapTypeId: google.maps.MapTypeId.ROADMAP,
+        disableDefaultUI: true, // Reduce API calls from UI controls
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [
+            {
+                featureType: 'poi',
+                elementType: 'labels',
+                stylers: [{ visibility: 'off' }] // Reduce visual clutter
+            }
+        ]
+    });
+    
+    // Add markers with custom icons
+    this.addMapMarkers(map, restaurant, customer);
+    
+    // Fit bounds to show all markers efficiently
+    this.fitMapBounds(map);
+}
+
+// Optimized marker creation
+addMapMarkers(map, restaurant, customer) {
+    // Restaurant marker
+    const restaurantMarker = new google.maps.Marker({
+        position: restaurant,
+        map: map,
+        icon: {
+            url: this.getMarkerIcon('restaurant'),
+            scaledSize: new google.maps.Size(40, 40),
+            anchor: new google.maps.Point(20, 40)
+        },
+        title: window.rdmTrackingData.locations.restaurant.name
+    });
+    
+    // Customer marker  
+    const customerMarker = new google.maps.Marker({
+        position: customer,
+        map: map,
+        icon: {
+            url: this.getMarkerIcon('customer'),
+            scaledSize: new google.maps.Size(40, 40),
+            anchor: new google.maps.Point(20, 40)
+        },
+        title: 'Delivery Address'
+    });
+    
+    // Add info windows with optimized content
+    this.addInfoWindows(map, restaurantMarker, customerMarker);
+}
+```
+
+## 🔄 Real-Time Updates (Optimized Polling)
+
+### Efficient Location Update Polling
+```javascript
+// Optimized polling with exponential backoff
+class LocationUpdatePoller {
+    constructor() {
+        this.baseInterval = 30000; // 30 seconds base
+        this.currentInterval = this.baseInterval;
+        this.maxInterval = 300000; // 5 minutes max
+        this.errorCount = 0;
+        this.isPolling = false;
+    }
+    
+    start() {
+        if (this.isPolling) return;
+        
+        this.isPolling = true;
+        this.poll();
+    }
+    
+    async poll() {
+        if (!this.isPolling) return;
+        
+        try {
+            const data = await this.fetchLocationUpdate();
+            this.handleSuccess(data);
+            
+            // Reset interval on success
+            this.currentInterval = this.baseInterval;
+            this.errorCount = 0;
+            
+        } catch (error) {
+            this.handleError(error);
+        }
+        
+        // Schedule next poll
+        setTimeout(() => this.poll(), this.currentInterval);
+    }
+    
+    handleError(error) {
+        this.errorCount++;
+        
+        // Exponential backoff on errors
+        this.currentInterval = Math.min(
+            this.baseInterval * Math.pow(2, this.errorCount),
+            this.maxInterval
+        );
+        
+        console.warn(`Polling error (${this.errorCount}), next attempt in ${this.currentInterval/1000}s`);
+    }
+    
+    async fetchLocationUpdate() {
+        const response = await fetch(rdmConfig.ajax_url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: new FormData(Object.assign({
+                action: 'rdm_get_agent_location',
+                order_id: rdmConfig.order_id,
+                nonce: rdmConfig.nonce
+            }))
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        return response.json();
+    }
+}
+```
+
+## 🔒 Security Patterns for Maps Integration
+
+### API Key Restriction and Validation
+```php
+// ALWAYS validate API key permissions
+public static function validate_api_key_permissions(): array {
+    $api_key = self::get_api_key();
+    if (!$api_key) {
+        return array('valid' => false, 'message' => 'No API key configured');
+    }
+    
+    $required_apis = array(
+        'Maps JavaScript API',
+        'Geocoding API',
+        'Distance Matrix API'
+    );
+    
+    $validation_results = array();
+    
+    foreach ($required_apis as $api) {
+        $validation_results[$api] = self::test_api_access($api, $api_key);
+    }
+    
+    return $validation_results;
+}
+
+// Server-side location validation
+public function validate_location_update(array $location_data): bool {
+    // Validate latitude/longitude ranges
+    if ($location_data['latitude'] < -90 || $location_data['latitude'] > 90) {
+        return false;
+    }
+    
+    if ($location_data['longitude'] < -180 || $location_data['longitude'] > 180) {
+        return false;
+    }
+    
+    // Validate accuracy (reasonable GPS accuracy)
+    if (isset($location_data['accuracy']) && $location_data['accuracy'] > 10000) {
+        return false; // Accuracy worse than 10km is suspicious
+    }
+    
+    // Validate agent is on duty and assigned to orders
+    $agent = $this->database->get_agent_by_user_id(get_current_user_id());
+    if (!$agent || $agent->availability != 1) {
+        return false;
+    }
+    
+    return true;
+}
+```
+
+## 📊 Usage Monitoring and Optimization
+
+### API Usage Tracking
+```php
+// Track API usage for cost monitoring
+public static function track_api_usage(string $api_type, string $endpoint = ''): void {
+    $date = date('Y-m-d');
+    $usage_key = "rdm_api_usage_{$date}";
+    
+    $usage_data = get_option($usage_key, array());
+    
+    if (!isset($usage_data[$api_type])) {
+        $usage_data[$api_type] = 0;
+    }
+    
+    $usage_data[$api_type]++;
+    
+    update_option($usage_key, $usage_data);
+    
+    // Alert if approaching limits
+    $total_usage = array_sum($usage_data);
+    if ($total_usage > 8000) { // 80% of free tier
+        self::send_usage_alert($total_usage, $usage_data);
+    }
+}
+
+// Usage report for admin
+public static function get_usage_report(int $days = 30): array {
+    $report = array();
+    
+    for ($i = 0; $i < $days; $i++) {
+        $date = date('Y-m-d', strtotime("-{$i} days"));
+        $usage_key = "rdm_api_usage_{$date}";
+        $usage_data = get_option($usage_key, array());
+        
+        if (!empty($usage_data)) {
+            $report[$date] = $usage_data;
+        }
+    }
+    
+    return $report;
+}
+```
+
+## ⚠️ Common Pitfalls to Avoid
+
+1. **Excessive API Calls**: Always cache geocoding results for 24+ hours
+2. **Battery Drain**: Use `enableHighAccuracy: false` for GPS tracking
+3. **Missing Fallbacks**: Always provide geocoding fallback for distance calculation
+4. **Unrestricted API Keys**: Always restrict API keys to specific domains/APIs
+5. **No Error Handling**: Always handle API failures gracefully
+6. **Polling Abuse**: Implement exponential backoff for failed requests
+
+## 💡 Example Implementation Prompts
+
+**For Route Optimization:**
+```
+"Add route optimization for multiple delivery stops using the existing Google Maps 
+integration patterns while maintaining cost optimization and caching strategies"
+```
+
+**For Geofencing:**
+```
+"Implement delivery zone geofencing using the existing geocoding and caching 
+infrastructure, following the established GPS tracking patterns"
+```
+
+**For Enhanced Tracking:**
+```
+"Add estimated time of arrival calculations to the customer tracking system 
+using the existing Distance Matrix API integration with proper caching"
+``` 

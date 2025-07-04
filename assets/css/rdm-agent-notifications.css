@@ -1,0 +1,623 @@
+/**
+ * Restaurant Delivery Manager - Agent Notifications CSS
+ *
+ * @package RestaurantDeliveryManager
+ * @subpackage Assets/CSS
+ * @since 2.0.0
+ * @version 2.0.0 - Mobile-optimized agent interface
+ */
+
+/* ==========================================================================
+   AGENT STATUS INDICATOR
+   ========================================================================== */
+
+.rdm-agent-status {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 25px;
+    padding: 8px 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+}
+
+.rdm-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rdm-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    animation: statusPulse 2s infinite;
+}
+
+.rdm-status-indicator.offline .rdm-status-dot {
+    background: #ef4444;
+}
+
+.rdm-status-indicator.connecting .rdm-status-dot {
+    background: #f59e0b;
+}
+
+@keyframes statusPulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.rdm-status-text {
+    font-weight: 500;
+    color: #374151;
+}
+
+.rdm-notification-count {
+    background: #ef4444;
+    color: white;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 20px;
+    text-align: center;
+}
+
+.rdm-notification-count .rdm-count {
+    display: block;
+}
+
+/* ==========================================================================
+   AGENT NOTIFICATIONS CONTAINER
+   ========================================================================== */
+
+.rdm-agent-notifications {
+    position: fixed;
+    top: 60px;
+    left: 10px;
+    right: 10px;
+    z-index: 999;
+    pointer-events: none;
+}
+
+/* Individual Agent Notification */
+.rdm-agent-notification {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.3s ease-out;
+    pointer-events: auto;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.rdm-agent-notification.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.rdm-agent-notification.dismissing {
+    opacity: 0;
+    transform: translateY(-20px);
+}
+
+.rdm-agent-notification.urgent {
+    border-left: 4px solid #ef4444;
+    animation: urgentShake 0.5s ease-in-out;
+}
+
+.rdm-agent-notification.new_assignment {
+    border-left: 4px solid #3b82f6;
+    background: #fef3c7;
+}
+
+.rdm-agent-notification.accepted {
+    background: #d1fae5;
+    border-left-color: #10b981;
+}
+
+.rdm-agent-notification.picked-up {
+    background: #dbeafe;
+    border-left-color: #3b82f6;
+}
+
+@keyframes urgentShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+/* Notification Header */
+.rdm-notification-header {
+    display: flex;
+    align-items: center;
+    padding: 16px 20px 12px;
+    position: relative;
+}
+
+.rdm-notification-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #6b7280;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.rdm-agent-notification.urgent .rdm-notification-icon {
+    background: #ef4444;
+}
+
+.rdm-agent-notification.new_assignment .rdm-notification-icon {
+    background: #3b82f6;
+}
+
+.rdm-agent-notification.accepted .rdm-notification-icon {
+    background: #10b981;
+}
+
+.rdm-notification-title {
+    font-weight: 600;
+    font-size: 16px;
+    color: #1f2937;
+    flex: 1;
+    line-height: 1.3;
+}
+
+.rdm-notification-dismiss {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: #9ca3af;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    touch-action: manipulation;
+}
+
+.rdm-notification-dismiss:hover,
+.rdm-notification-dismiss:focus {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+/* Notification Body */
+.rdm-notification-body {
+    padding: 0 20px 16px;
+}
+
+.rdm-notification-message {
+    font-size: 14px;
+    color: #4b5563;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+.rdm-notification-meta {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.rdm-notification-meta:last-child {
+    margin-bottom: 0;
+}
+
+/* Notification Actions */
+.rdm-notification-actions {
+    padding: 0 20px 20px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.rdm-notification-actions .button-primary {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    touch-action: manipulation;
+    min-height: 44px; /* Touch target size */
+    transition: all 0.2s;
+}
+
+.rdm-notification-actions .button-primary:hover {
+    background: #2563eb;
+}
+
+.rdm-notification-actions .button-primary:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+}
+
+.rdm-notification-actions .button-secondary {
+    background: white;
+    color: #374151;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    touch-action: manipulation;
+    min-height: 44px;
+    transition: all 0.2s;
+}
+
+.rdm-notification-actions .button-secondary:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+/* ==========================================================================
+   QUICK ACTIONS PANEL
+   ========================================================================== */
+
+.rdm-quick-actions {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    display: flex;
+    gap: 8px;
+    z-index: 1000;
+}
+
+.rdm-quick-action {
+    background: none;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    touch-action: manipulation;
+    min-width: 60px;
+    min-height: 60px;
+}
+
+.rdm-quick-action:hover {
+    background: #f3f4f6;
+}
+
+.rdm-quick-action.available {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.rdm-quick-action.unavailable {
+    background: #fecaca;
+    color: #991b1b;
+}
+
+.rdm-quick-action .dashicons {
+    font-size: 20px;
+}
+
+.rdm-action-text {
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+}
+
+/* ==========================================================================
+   CONNECTION STATUS
+   ========================================================================== */
+
+.rdm-connection-status {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1f2937;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    z-index: 9999;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.rdm-connection-status:not(.hidden) {
+    opacity: 1;
+}
+
+.rdm-connection-text {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rdm-connection-text::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media screen and (max-width: 480px) {
+    .rdm-agent-status {
+        position: relative;
+        left: auto;
+        top: auto;
+        margin: 10px;
+        justify-content: center;
+    }
+    
+    .rdm-agent-notifications {
+        top: auto;
+        left: 10px;
+        right: 10px;
+        bottom: 100px; /* Above quick actions */
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+    
+    .rdm-notification-actions {
+        flex-direction: column;
+    }
+    
+    .rdm-notification-actions .button-primary,
+    .rdm-notification-actions .button-secondary {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .rdm-quick-actions {
+        left: 10px;
+        right: 10px;
+        transform: none;
+        justify-content: space-around;
+    }
+    
+    .rdm-quick-action {
+        flex: 1;
+        min-width: auto;
+    }
+}
+
+/* ==========================================================================
+   LANDSCAPE ORIENTATION
+   ========================================================================== */
+
+@media screen and (orientation: landscape) and (max-height: 500px) {
+    .rdm-agent-notifications {
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+    
+    .rdm-quick-actions {
+        bottom: 10px;
+    }
+}
+
+/* ==========================================================================
+   DARK MODE
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+    .rdm-agent-status {
+        background: #1f2937;
+        border-color: #374151;
+        color: #f9fafb;
+    }
+    
+    .rdm-status-text {
+        color: #f9fafb;
+    }
+    
+    .rdm-agent-notification {
+        background: #1f2937;
+        border-color: #374151;
+        color: #f9fafb;
+    }
+    
+    .rdm-notification-title {
+        color: #f9fafb;
+    }
+    
+    .rdm-notification-message {
+        color: #d1d5db;
+    }
+    
+    .rdm-notification-meta {
+        background: #374151;
+        border-color: #4b5563;
+        color: #9ca3af;
+    }
+    
+    .rdm-notification-dismiss:hover {
+        background: #374151;
+        color: #d1d5db;
+    }
+    
+    .rdm-quick-actions {
+        background: #1f2937;
+        border-color: #374151;
+    }
+    
+    .rdm-quick-action:hover {
+        background: #374151;
+    }
+    
+    .rdm-notification-actions .button-secondary {
+        background: #374151;
+        color: #f9fafb;
+        border-color: #4b5563;
+    }
+    
+    .rdm-notification-actions .button-secondary:hover {
+        background: #4b5563;
+    }
+}
+
+/* ==========================================================================
+   ACCESSIBILITY
+   ========================================================================== */
+
+.rdm-agent-notification:focus,
+.rdm-quick-action:focus,
+.rdm-notification-dismiss:focus,
+.rdm-notification-actions button:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    .rdm-agent-notification {
+        border-width: 2px;
+    }
+    
+    .rdm-notification-actions button {
+        border-width: 2px;
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .rdm-agent-notification,
+    .rdm-quick-action,
+    .rdm-connection-status {
+        transition: none;
+    }
+    
+    .rdm-agent-notification.urgent {
+        animation: none;
+    }
+    
+    .rdm-status-dot {
+        animation: none;
+    }
+}
+
+/* ==========================================================================
+   PRINT STYLES
+   ========================================================================== */
+
+@media print {
+    .rdm-agent-status,
+    .rdm-agent-notifications,
+    .rdm-quick-actions,
+    .rdm-connection-status {
+        display: none;
+    }
+}
+
+/* ==========================================================================
+   UTILITY CLASSES
+   ========================================================================== */
+
+.rdm-hidden {
+    display: none !important;
+}
+
+.rdm-fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.rdm-fade-out {
+    animation: fadeOut 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-20px); }
+}
+
+/* Success states */
+.rdm-success {
+    background: #d1fae5 !important;
+    border-color: #10b981 !important;
+}
+
+.rdm-error {
+    background: #fecaca !important;
+    border-color: #ef4444 !important;
+}
+
+.rdm-warning {
+    background: #fef3c7 !important;
+    border-color: #f59e0b !important;
+}
+
+/* Loading states */
+.rdm-loading {
+    position: relative;
+    overflow: hidden;
+}
+
+.rdm-loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+    0% { left: -100%; }
+    100% { left: 100%; }
+} 

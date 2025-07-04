@@ -1,0 +1,378 @@
+---
+description: "Main project context for RestroReach restaurant delivery management system - WordPress/WooCommerce plugin with mobile PWA, GPS tracking, and payment processing"
+globs: []
+alwaysApply: true
+---
+
+# RestroReach: Restaurant Delivery Manager - Cursor AI Rules
+# WordPress/WooCommerce Plugin Development - Production-Grade System
+
+## 🎯 PROJECT CONTEXT
+- **Project:** Restaurant Delivery Manager Professional (RestroReach)
+- **Type:** WordPress/WooCommerce Plugin (Enterprise-grade)
+- **Status:** 85% Complete (352KB codebase, 13,567 lines) - Production-grade enterprise system
+- **Target:** Complete restaurant delivery management ecosystem
+- **Tech Stack:** WordPress 6.0+, WooCommerce 8.0+, PHP 8.0+, Progressive Web App
+
+## 👥 USER ROLES & BUSINESS LOGIC
+1. **Website Admin:** Full WordPress control, plugin configuration
+2. **Restaurant Manager:** Order management, agent assignment (NO WordPress admin access)
+3. **Delivery Agent:** Mobile PWA interface, GPS tracking, order updates
+4. **Customer:** WooCommerce storefront, real-time order tracking
+
+## 🏗️ ARCHITECTURAL PATTERNS
+
+### **Database Schema (7 Custom Tables)**
+```sql
+{prefix}rr_delivery_agents      -- Agent profiles, availability, vehicle info
+{prefix}rr_order_assignments    -- Order-to-agent mapping with timestamps  
+{prefix}rr_location_tracking    -- GPS history (45-second intervals, battery optimized)
+{prefix}rr_delivery_notes       -- Order-specific delivery instructions
+{prefix}rr_delivery_areas       -- Service zones and pricing
+{prefix}rr_payment_transactions -- COD collection audit trail
+{prefix}rr_cash_reconciliation  -- Daily agent cash reconciliation
+```
+
+### **Class Architecture Patterns**
+```php
+// Follow singleton pattern for main classes
+class RDM_ClassName {
+    private static ?RDM_ClassName $instance = null;
+    
+    public static function instance(): RDM_ClassName {
+        if (is_null(self::$instance)) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+    
+    private function __construct() {
+        $this->init_hooks();
+    }
+}
+```
+
+## 🔒 SECURITY REQUIREMENTS (WordPress.org Standards)
+
+### **Input Sanitization (ALWAYS Required)**
+```php
+// User input - ALWAYS sanitize
+$order_id = absint($_POST['order_id']);
+$note_text = sanitize_textarea_field($_POST['note_text']);
+$phone = sanitize_text_field($_POST['phone']);
+
+// Database queries - ALWAYS use prepared statements
+$wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id);
+```
+
+### **Output Escaping (ALWAYS Required)**
+```php
+// HTML output - ALWAYS escape
+echo esc_html($user_input);
+echo esc_attr($attribute_value);
+echo wp_kses_post($allowed_html_content);
+```
+
+### **CSRF Protection (ALWAYS Required)**
+```php
+// AJAX requests - ALWAYS verify nonces
+if (!wp_verify_nonce($_POST['nonce'], 'rdm_action_name')) {
+    wp_die('Security check failed');
+}
+
+// Forms - ALWAYS include nonce fields
+wp_nonce_field('rdm_action_name', 'rdm_nonce');
+```
+
+### **Capability Checks (ALWAYS Required)**
+```php
+// User permissions - ALWAYS check capabilities before actions
+if (!current_user_can('rdm_manage_orders')) {
+    wp_die(__('Insufficient permissions.', 'restaurant-delivery-manager'));
+}
+```
+
+## 📱 DEVELOPMENT PRIORITIES & STATUS
+
+### **✅ COMPLETED (Production-Ready) - 85% Complete**
+- Database architecture (75KB class-database.php, 2,297 lines)
+- Admin interface (80KB class-rdm-admin-interface.php, 2,062 lines)  
+- Google Maps integration (45KB class-rdm-google-maps.php, 1,273 lines)
+- Payment system with COD workflows (39KB class-payments.php, 1,104 lines)
+- WooCommerce integration with custom order statuses (53KB, 1,389 lines)
+- User roles and capabilities system (29KB class-user-roles.php, 831 lines)
+- GPS tracking with battery optimization (9KB class-rdm-gps-tracking.php, 300 lines)
+- **Analytics system** (41KB class-analytics.php, 1,185 lines) - Enterprise BI platform
+- **Notification system** (69KB class-notifications.php, 1,806 lines) - Multi-channel communications
+- **Customer tracking** (26KB class-customer-tracking.php, 760 lines) - Real-time order tracking
+- **Mobile PWA frontend** (24KB class-rdm-mobile-frontend.php, 587 lines) - Touch-optimized interface
+- **REST API** (21KB class-rdm-api-endpoints.php, 645 lines) - Complete mobile backend
+
+### **⏳ REMAINING WORK (15% - Final Phase)**
+- PWA enhancements (service worker, push notifications)
+- Advanced photo confirmation workflows
+- ML-based delivery predictions
+- Final testing and optimization
+
+### **✅ READY FOR PRODUCTION**
+- All core delivery management functionality operational
+- Enterprise-grade analytics and reporting
+- Real-time customer tracking and notifications
+- Mobile agent interface with GPS tracking
+- Complete payment processing and reconciliation
+
+## 🎨 CODING STANDARDS
+
+### **PHP Standards**
+```php
+<?php
+/**
+ * Class description
+ *
+ * @package RestaurantDeliveryManager
+ * @subpackage SubpackageName
+ * @since 1.0.0
+ */
+
+// Prevent direct access - ALWAYS include
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Use typed properties and return types (PHP 8.0+)
+class RDM_Example {
+    private string $property;
+    
+    public function method(int $param): ?string {
+        // Implementation
+    }
+}
+```
+
+### **JavaScript Standards (ES6+)**
+```javascript
+/**
+ * Feature description
+ * @param {Object} config Configuration object
+ * @returns {Promise} Promise resolving to result
+ */
+function featureName(config) {
+    // Use const/let, arrow functions, async/await
+    // Implement error handling and loading states
+    // Follow mobile-first responsive design
+}
+```
+
+### **CSS Standards**
+```css
+/* Component: rdm-component-name */
+.rdm-component {
+    /* Mobile-first responsive design */
+    /* Use BEM methodology for class naming */
+    /* Include hover states and accessibility */
+}
+
+@media (min-width: 768px) {
+    /* Tablet and desktop styles */
+}
+```
+
+## 📂 FILE ORGANIZATION
+
+### **Class Files:** `includes/class-[component].php`
+- `class-database.php` - Database operations and CRUD
+- `class-rdm-admin-interface.php` - Restaurant manager dashboard
+- `class-rdm-google-maps.php` - Maps integration and optimization
+- `class-payments.php` - COD workflows and cash reconciliation
+- `class-woocommerce-integration.php` - Order statuses and shipping
+
+### **Templates:** `templates/[role]/[template].php`
+- `templates/admin/` - Restaurant manager interfaces
+- `templates/mobile-agent/` - PWA mobile interfaces  
+- `templates/customer-tracking.php` - Order tracking interface
+
+### **Assets:** `assets/[type]/[component].[ext]`
+- `assets/css/rdm-[component].css` - Component stylesheets
+- `assets/js/rdm-[component].js` - Component JavaScript
+
+## 🔄 AJAX PATTERNS
+
+### **Standard AJAX Handler Pattern**
+```php
+// PHP Handler
+public function ajax_action_name(): void {
+    // Security check
+    if (!wp_verify_nonce($_POST['nonce'], 'rdm_action_nonce')) {
+        wp_die('Security check failed');
+    }
+    
+    // Capability check
+    if (!current_user_can('required_capability')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    // Process request
+    $result = $this->process_action();
+    
+    if ($result) {
+        wp_send_json_success($result);
+    } else {
+        wp_send_json_error('Action failed');
+    }
+}
+```
+
+### **JavaScript AJAX Pattern**
+```javascript
+// Frontend Request
+function performAction(data) {
+    return fetch(rdmParams.ajax_url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: new FormData(Object.assign(data, {
+            action: 'rdm_action_name',
+            nonce: rdmParams.nonce
+        }))
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            return data.data;
+        } else {
+            throw new Error(data.data.message || 'Action failed');
+        }
+    });
+}
+```
+
+## 🗺️ GOOGLE MAPS INTEGRATION
+
+### **API Usage Optimization (Cost-Effective)**
+```javascript
+// Use Essentials tier (10K free calls/month)
+// Implement caching for geocoding results (24 hours)
+// Cache restaurant coordinates (7 days)
+// Optimize map loading and reduce API calls
+
+const mapConfig = {
+    libraries: ['places', 'geometry'],
+    region: 'US',
+    language: 'en'
+};
+```
+
+### **GPS Tracking (Battery Optimized)**
+```javascript
+// 45-second intervals for location updates
+// Monitor battery level and adjust frequency
+// Implement offline queue for failed updates
+navigator.geolocation.getCurrentPosition(
+    position => updateLocation(position),
+    error => handleLocationError(error),
+    {
+        enableHighAccuracy: false, // Battery optimization
+        timeout: 15000,
+        maximumAge: 60000 // Cache for 1 minute
+    }
+);
+```
+
+## 📱 MOBILE PWA REQUIREMENTS
+
+### **Mobile-First Design**
+- Touch-friendly interfaces (minimum 44px touch targets)
+- Responsive breakpoints: 320px, 768px, 1024px
+- Battery-conscious GPS tracking
+- Offline capability for core functions
+
+### **Progressive Web App Features**
+```javascript
+// Service worker for offline functionality
+// App manifest for installability  
+// Background sync for location updates
+// Push notifications for order assignments
+```
+
+## 🔧 PERFORMANCE OPTIMIZATION
+
+### **Database Optimization**
+- Proper indexing on foreign keys and frequently queried columns
+- Transient caching for expensive operations (Google Maps API results)
+- Batch operations for bulk updates
+- Automatic cleanup of old location data (7 days)
+
+### **Frontend Optimization**
+- Lazy loading for non-critical JavaScript
+- CSS/JS minification for production
+- Image optimization for mobile devices
+- Efficient AJAX polling (30-second intervals with exponential backoff)
+
+## 🧪 TESTING STANDARDS
+
+### **Unit Testing**
+```php
+// Test all CRUD operations
+// Test security validations
+// Test capability checks
+// Test error handling
+```
+
+### **Integration Testing**
+- WooCommerce order workflow
+- Google Maps API integration
+- Mobile interface functionality
+- Payment processing workflows
+
+## 📋 CODE GENERATION GUIDELINES
+
+### **When generating PHP classes:**
+1. Include proper security checks (nonces, capabilities, sanitization)
+2. Use singleton pattern for main classes
+3. Follow WordPress coding standards
+4. Include comprehensive PHPDoc blocks
+5. Implement proper error handling
+
+### **When generating JavaScript:**
+1. Use ES6+ features (const/let, arrow functions, async/await)
+2. Implement loading states and error handling
+3. Follow mobile-first responsive design
+4. Include accessibility considerations
+5. Optimize for battery usage on mobile devices
+
+### **When generating templates:**
+1. Escape all output with appropriate WordPress functions
+2. Use semantic HTML structure
+3. Include proper form nonces
+4. Implement responsive design patterns
+5. Follow accessibility guidelines
+
+## 🔗 INTEGRATION POINTS
+
+### **WooCommerce Integration**
+- Custom order statuses: `wc-preparing`, `wc-ready-for-pickup`, `wc-out-for-delivery`
+- Custom shipping method with distance-based pricing
+- HPOS (High-Performance Order Storage) compatibility
+- Order meta fields for delivery information
+
+### **WordPress Integration**
+- Custom user roles and capabilities
+- Admin menu integration with proper permissions
+- Settings API for configuration
+- Cron jobs for automated cleanup
+
+## 🚨 CRITICAL REQUIREMENTS
+
+1. **Security First:** Every user input must be sanitized, every output escaped
+2. **Mobile Optimization:** All interfaces must work on smartphones
+3. **Performance:** GPS tracking must not drain battery excessively
+4. **WordPress Standards:** Must pass WordPress.org plugin review
+5. **Scalability:** Must handle multiple concurrent orders and agents
+
+## 💡 AI ASSISTANT GUIDELINES
+
+- Generate complete, production-ready code with proper error handling
+- Include security validations in all user-facing functions
+- Follow established patterns from existing codebase
+- Prioritize mobile-first responsive design
+- Implement proper WordPress hooks and filters
+- Include comprehensive code comments and documentation 

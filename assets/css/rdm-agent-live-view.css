@@ -1,0 +1,271 @@
+/**
+ * Agent Live View Admin Page Styles
+ * 
+ * @package RestaurantDeliveryManager
+ * @subpackage AdminCSS
+ * @since 1.0.0
+ */
+
+/* Agent Live View Container */
+.rdm-agent-live-view {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Agent Selector Section */
+.rdm-agent-selector {
+    margin: 20px 0;
+    padding: 20px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.rdm-agent-selector label {
+    font-weight: 600;
+    color: #23282d;
+    margin-right: 10px;
+}
+
+.rdm-agent-selector select {
+    min-width: 300px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+/* Agent Information Card */
+.rdm-agent-info-card {
+    margin: 20px 0;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.rdm-agent-info-card h3 {
+    margin: 0 0 15px 0;
+    color: #23282d;
+    font-size: 20px;
+    border-bottom: 2px solid #0073aa;
+    padding-bottom: 8px;
+}
+
+.rdm-agent-info-card p {
+    margin: 8px 0;
+    color: #555;
+    line-height: 1.5;
+}
+
+.rdm-agent-info-card strong {
+    color: #23282d;
+}
+
+.rdm-no-location {
+    color: #d63638;
+    font-style: italic;
+    background: #ffeaea;
+    padding: 10px;
+    border-radius: 4px;
+    border-left: 4px solid #d63638;
+}
+
+/* Map Container */
+.rdm-map-container {
+    margin: 20px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+#rdm-agent-live-map-canvas {
+    height: 500px;
+    width: 100%;
+    border: none;
+}
+
+/* Location Details Table */
+.rdm-location-details {
+    margin: 20px 0;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.rdm-location-details h3 {
+    margin: 0;
+    padding: 15px 20px;
+    background: #f1f1f1;
+    border-bottom: 1px solid #ddd;
+    color: #23282d;
+    font-size: 16px;
+}
+
+.rdm-location-details table {
+    width: 100%;
+    margin: 0;
+}
+
+.rdm-location-details th,
+.rdm-location-details td {
+    padding: 12px 20px;
+    border-bottom: 1px solid #f1f1f1;
+}
+
+.rdm-location-details th {
+    background: #f9f9f9;
+    font-weight: 600;
+    color: #23282d;
+    width: 150px;
+    text-align: left;
+}
+
+.rdm-location-details td {
+    color: #555;
+}
+
+.rdm-location-details tr:last-child th,
+.rdm-location-details tr:last-child td {
+    border-bottom: none;
+}
+
+/* Status Indicators */
+.rdm-status-online {
+    display: inline-block;
+    padding: 4px 8px;
+    background: #46b450;
+    color: #fff;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.rdm-status-offline {
+    display: inline-block;
+    padding: 4px 8px;
+    background: #dc3232;
+    color: #fff;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.rdm-battery-high {
+    color: #46b450;
+    font-weight: 600;
+}
+
+.rdm-battery-medium {
+    color: #ffb900;
+    font-weight: 600;
+}
+
+.rdm-battery-low {
+    color: #dc3232;
+    font-weight: 600;
+}
+
+/* Action Buttons */
+.rdm-action-buttons {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.rdm-action-button {
+    display: inline-block;
+    padding: 10px 20px;
+    margin: 0 5px;
+    background: #0073aa;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 600;
+    transition: background-color 0.3s ease;
+}
+
+.rdm-action-button:hover {
+    background: #005a87;
+    color: #fff;
+}
+
+.rdm-action-button.secondary {
+    background: #666;
+}
+
+.rdm-action-button.secondary:hover {
+    background: #555;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .rdm-agent-info-card {
+        padding: 15px;
+    }
+    
+    .rdm-agent-selector select {
+        min-width: 100%;
+        margin-top: 10px;
+    }
+    
+    #rdm-agent-live-map-canvas {
+        height: 400px;
+    }
+    
+    .rdm-location-details th,
+    .rdm-location-details td {
+        padding: 8px 15px;
+    }
+    
+    .rdm-location-details th {
+        width: 120px;
+    }
+}
+
+/* Loading States */
+.rdm-loading {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+.rdm-loading::before {
+    content: "⟳";
+    font-size: 24px;
+    animation: spin 1s linear infinite;
+    display: block;
+    margin-bottom: 10px;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Error States */
+.rdm-error {
+    background: #ffeaea;
+    border: 1px solid #d63638;
+    border-radius: 4px;
+    padding: 15px;
+    margin: 20px 0;
+    color: #d63638;
+}
+
+.rdm-error h4 {
+    margin: 0 0 10px 0;
+    color: #d63638;
+}
+
+/* Success States */
+.rdm-success {
+    background: #eafaea;
+    border: 1px solid #46b450;
+    border-radius: 4px;
+    padding: 15px;
+    margin: 20px 0;
+    color: #46b450;
+}

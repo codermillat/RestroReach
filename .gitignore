@@ -1,0 +1,181 @@
+# WordPress Plugin .gitignore
+# Comprehensive file for WordPress plugin development
+
+# ------------------------------------------------------------------------------
+# WordPress Core Files & Directories (defensive - in case accidentally placed in plugin repo)
+# ------------------------------------------------------------------------------
+wp-admin/
+wp-includes/
+wp-content/uploads/
+wp-content/blogs.dir/
+wp-content/upgrade/
+wp-content/cache/
+wp-content/backup-db/
+wp-config.php
+.htaccess
+index.php
+xmlrpc.php
+wp-*.php
+license.txt
+readme.html
+
+# ------------------------------------------------------------------------------
+# IDE & Editor Specific Files
+# ------------------------------------------------------------------------------
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (PhpStorm, WebStorm, etc)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+\#*\#
+.\#*
+
+# TextMate
+*.tmproj
+*.tmproject
+tmtags
+
+# NetBeans
+nbproject/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# ------------------------------------------------------------------------------
+# Operating System Specific Files
+# ------------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+Icon
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ------------------------------------------------------------------------------
+# Dependency Management Directories
+# ------------------------------------------------------------------------------
+# NPM/Yarn
+node_modules/
+
+# Composer
+vendor/
+
+# Bower
+bower_components/
+
+# ------------------------------------------------------------------------------
+# Build Artifacts & Compiled Files
+# ------------------------------------------------------------------------------
+# Source maps
+*.css.map
+*.js.map
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build directories (unless needed for distribution)
+# Uncomment if you're building into these directories but don't want to commit them
+# /dist/
+# /build/
+# /assets/js/dist/
+# /assets/css/dist/
+
+# ------------------------------------------------------------------------------
+# Package Manager Lock Files
+# ------------------------------------------------------------------------------
+# Note: Typically these files SHOULD be committed to ensure consistent dependencies
+# They are listed here commented out for reference only
+# Uncomment if you specifically want to ignore them
+# composer.lock
+# package-lock.json
+# yarn.lock
+
+# ------------------------------------------------------------------------------
+# Local Development Configuration / Environment Files
+# ------------------------------------------------------------------------------
+.env
+.env.*
+*.local
+wp-config.*.php
+docker-compose.override.yml
+
+# Local server configuration
+.htaccess-local
+php.ini
+.phpcs.cache
+
+# ------------------------------------------------------------------------------
+# Archive Files
+# ------------------------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ------------------------------------------------------------------------------
+# Plugin Specific Temporary Files
+# ------------------------------------------------------------------------------
+# Cache
+includes/cache/
+cache/
+
+# Logs
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Test coverage reports
+coverage/
+clover.xml
+
+# ------------------------------------------------------------------------------
+# Unit Testing / CI
+# ------------------------------------------------------------------------------
+.phpunit.result.cache
+phpunit.xml
+phpcs.xml
+# AI Status Tracking
+.ai-velocity.json
+ai-predictions.json

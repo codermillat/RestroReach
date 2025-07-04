@@ -1,0 +1,43 @@
+{
+  "name": "restroreach-delivery-manager",
+  "version": "1.0.0",
+  "description": "WordPress plugin for restaurant delivery management with enterprise-grade features",
+  "main": "restaurant-delivery-manager.php",
+  "scripts": {
+    "build": "npm run build:css && npm run build:js",
+    "build:css": "cleancss -o assets/css/rdm-admin-interface.min.css assets/css/rdm-admin-interface.css && cleancss -o assets/css/rdm-mobile-agent.min.css assets/css/rdm-mobile-agent.css && cleancss -o assets/css/rdm-customer-tracking.min.css assets/css/rdm-customer-tracking.css && cleancss -o assets/css/rdm-google-maps.min.css assets/css/rdm-google-maps.css && cleancss -o assets/css/rdm-analytics.min.css assets/css/rdm-analytics.css && cleancss -o assets/css/rdm-payments.min.css assets/css/rdm-payments.css",
+    "build:js": "uglifyjs assets/js/rdm-mobile-agent.js -o assets/js/rdm-mobile-agent.min.js -c -m && uglifyjs assets/js/rdm-google-maps.js -o assets/js/rdm-google-maps.min.js -c -m && uglifyjs assets/js/rdm-customer-tracking.js -o assets/js/rdm-customer-tracking.min.js -c -m && uglifyjs assets/js/rdm-analytics.js -o assets/js/rdm-analytics.min.js -c -m && uglifyjs assets/js/rdm-admin-orders.js -o assets/js/rdm-admin-orders.min.js -c -m && uglifyjs assets/js/rdm-payments.js -o assets/js/rdm-payments.min.js -c -m",
+    "watch": "npm run watch:css & npm run watch:js",
+    "watch:css": "nodemon --watch assets/css/*.css --ext css --exec 'npm run build:css'",
+    "watch:js": "nodemon --watch assets/js/*.js --ignore assets/js/*.min.js --ext js --exec 'npm run build:js'",
+    "test:performance": "node tests/performance-test.js",
+    "test:security": "node tests/security-scan.js",
+    "validate": "npm run test:security && npm run test:performance"
+  },
+  "devDependencies": {
+    "clean-css-cli": "^5.6.2",
+    "uglify-js": "^3.17.4",
+    "nodemon": "^3.0.1",
+    "axios": "^1.6.0",
+    "jest": "^29.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/restroreach-delivery-manager.git"
+  },
+  "keywords": [
+    "wordpress",
+    "plugin",
+    "delivery",
+    "restaurant",
+    "woocommerce",
+    "gps",
+    "mobile"
+  ],
+  "author": "RestroReach Development Team",
+  "license": "GPL-2.0-or-later",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+} 
