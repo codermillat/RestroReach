@@ -24,6 +24,7 @@ class RDM_Mobile_Frontend {
         add_filter('query_vars', array($this, 'add_query_vars'));
         add_action('template_redirect', array($this, 'template_loader'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_assets'));
+        add_action('wp_head', array($this, 'add_pwa_meta_tags'));
         // AJAX handlers
         add_action('wp_ajax_nopriv_rdm_agent_login', array($this, 'ajax_agent_login'));
         add_action('wp_ajax_rdm_get_agent_orders', array($this, 'ajax_get_agent_orders'));
@@ -79,11 +80,14 @@ class RDM_Mobile_Frontend {
         if ($page === 'login' || $page === 'dashboard') {
                     wp_enqueue_style('rdm-mobile-agent', plugin_dir_url(__FILE__) . '../assets/css/rdm-mobile-agent.css', array(), '1.0.0');
         wp_enqueue_script('rdm-mobile-agent', plugin_dir_url(__FILE__) . '../assets/js/rdm-mobile-agent.js', array('jquery'), '1.0.0', true);
+            wp_enqueue_script('rdm-service-worker-registration', plugin_dir_url(__FILE__) . '../assets/js/service-worker-registration.js', array('rdm-mobile-agent'), '1.0.0', true);
                          wp_localize_script('rdm-mobile-agent', 'rdmAgent', array(
                 'ajaxUrl' => admin_url('admin-ajax.php'),
                 'nonce' => wp_create_nonce('rdm_agent_mobile'),
                 'dashboardUrl' => home_url('/delivery-agent/dashboard'),
                 'loginUrl' => home_url('/delivery-agent/login'),
+                'serviceWorkerUrl' => plugin_dir_url(__FILE__) . '../assets/js/sw.js',
+                'manifestUrl' => home_url('/manifest.json'),
                 'strings' => array(
                     'loading' => __('Loading...', 'restaurant-delivery-manager'),
                     'error' => __('An error occurred', 'restaurant-delivery-manager'),
@@ -579,6 +583,43 @@ class RDM_Mobile_Frontend {
         } catch (Exception $e) {
             error_log('RestroReach: Get order details failed - ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+
+    /**
+     * Add PWA meta tags to mobile agent pages
+     */
+    public function add_pwa_meta_tags() {
+        $page = get_query_var('rdm_agent_page');
+        if ($page === 'login' || $page === 'dashboard') {
+            ?>
+            <!-- PWA Meta Tags -->
+            <meta name="application-name" content="RestroReach Agent">
+            <meta name="apple-mobile-web-app-title" content="RestroReach">
+            <meta name="apple-mobile-web-app-capable" content="yes">
+            <meta name="apple-mobile-web-app-status-bar-style" content="default">
+            <meta name="mobile-web-app-capable" content="yes">
+            <meta name="theme-color" content="#2271b1">
+            <meta name="msapplication-TileColor" content="#2271b1">
+            <meta name="msapplication-config" content="<?php echo esc_url(home_url('/browserconfig.xml')); ?>">
+            
+            <!-- Manifest -->
+            <link rel="manifest" href="<?php echo esc_url(home_url('/manifest.json')); ?>">
+            
+            <!-- Apple Touch Icons -->
+            <link rel="apple-touch-icon" sizes="180x180" href="<?php echo esc_url(plugin_dir_url(__FILE__) . '../assets/images/icon-180x180.png'); ?>">
+            <link rel="apple-touch-icon" sizes="152x152" href="<?php echo esc_url(plugin_dir_url(__FILE__) . '../assets/images/icon-152x152.png'); ?>">
+            <link rel="apple-touch-icon" sizes="144x144" href="<?php echo esc_url(plugin_dir_url(__FILE__) . '../assets/images/icon-144x144.png'); ?>">
+            
+            <!-- Favicon -->
+            <link rel="icon" type="image/png" sizes="32x32" href="<?php echo esc_url(plugin_dir_url(__FILE__) . '../assets/images/icon-32x32.png'); ?>">
+            <link rel="icon" type="image/png" sizes="16x16" href="<?php echo esc_url(plugin_dir_url(__FILE__) . '../assets/images/icon-16x16.png'); ?>">
+            
+            <!-- Mobile optimizations -->
+            <meta name="format-detection" content="telephone=yes">
+            <meta name="HandheldFriendly" content="true">
+            <meta name="MobileOptimized" content="320">
+            <?php
         }
     }
 }
