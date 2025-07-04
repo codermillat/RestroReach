@@ -8,21 +8,25 @@ const STATIC_CACHE = 'rdm-static-v1.0.0';
 const DYNAMIC_CACHE = 'rdm-dynamic-v1.0.0';
 const OFFLINE_CACHE = 'rdm-offline-v1.0.0';
 
+// Get plugin URL from URL parameters
+const urlParams = new URLSearchParams(location.search);
+const PLUGIN_URL = urlParams.get('pluginUrl') || '/wp-content/plugins/restaurant-delivery-manager/';
+
 // Critical resources to cache for offline functionality
 const STATIC_RESOURCES = [
     // Core mobile agent interface
-    '/wp-content/plugins/restaurant-delivery-manager/templates/mobile-agent/dashboard.php',
-    '/wp-content/plugins/restaurant-delivery-manager/assets/css/rdm-mobile-agent.css',
-    '/wp-content/plugins/restaurant-delivery-manager/assets/js/rdm-mobile-agent.js',
-    '/wp-content/plugins/restaurant-delivery-manager/assets/css/rdm-mobile-agent.min.css',
-    '/wp-content/plugins/restaurant-delivery-manager/assets/js/rdm-mobile-agent.min.js',
+    PLUGIN_URL + 'templates/mobile-agent/dashboard.php',
+    PLUGIN_URL + 'assets/css/rdm-mobile-agent.css',
+    PLUGIN_URL + 'assets/js/rdm-mobile-agent.js',
+    PLUGIN_URL + 'assets/css/rdm-mobile-agent.min.css',
+    PLUGIN_URL + 'assets/js/rdm-mobile-agent.min.js',
     
     // Essential styles and scripts
-    '/wp-content/plugins/restaurant-delivery-manager/assets/css/rdm-notifications.css',
-    '/wp-content/plugins/restaurant-delivery-manager/assets/js/rdm-agent-notifications.js',
+    PLUGIN_URL + 'assets/css/rdm-notifications.css',
+    PLUGIN_URL + 'assets/js/rdm-agent-notifications.js',
     
     // Offline fallback page
-    '/wp-content/plugins/restaurant-delivery-manager/templates/offline.html'
+    PLUGIN_URL + 'templates/offline.html'
 ];
 
 // API endpoints that should be cached for offline access
@@ -160,8 +164,8 @@ self.addEventListener('push', event => {
     const options = {
         title: data.title || 'RestroReach',
         body: data.body || 'New notification',
-        icon: '/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-192x192.png',
-        badge: '/wp-content/plugins/restaurant-delivery-manager/assets/images/badge-72x72.png',
+        icon: PLUGIN_URL + 'assets/images/icon-192x192.png',
+        badge: PLUGIN_URL + 'assets/images/badge-72x72.png',
         data: data,
         actions: data.actions || [],
         requireInteraction: data.urgent || false,
@@ -240,7 +244,7 @@ async function cacheFirstStrategy(request) {
         return networkResponse;
     } catch (error) {
         console.error('RestroReach Service Worker: Cache first strategy failed', error);
-        return await caches.match('/wp-content/plugins/restaurant-delivery-manager/templates/offline.html');
+        return await caches.match(PLUGIN_URL + 'templates/offline.html');
     }
 }
 
@@ -305,8 +309,8 @@ async function handleNavigation(request) {
         return await fetch(request);
     } catch (error) {
         const cache = await caches.open(STATIC_CACHE);
-        return await cache.match('/wp-content/plugins/restaurant-delivery-manager/templates/mobile-agent/dashboard.php') ||
-               await cache.match('/wp-content/plugins/restaurant-delivery-manager/templates/offline.html');
+        return await cache.match(PLUGIN_URL + 'templates/mobile-agent/dashboard.php') ||
+               await cache.match(PLUGIN_URL + 'templates/offline.html');
     }
 }
 

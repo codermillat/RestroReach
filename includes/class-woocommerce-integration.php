@@ -1304,23 +1304,7 @@ class RDM_Distance_Shipping extends WC_Shipping_Method {
      * @return float Distance in kilometers
      */
     private function calculate_haversine_distance(float $lat1, float $lng1, float $lat2, float $lng2): float {
-        $earth_radius = 6371; // Earth's radius in kilometers
-        
-        $lat1_rad = deg2rad($lat1);
-        $lng1_rad = deg2rad($lng1);
-        $lat2_rad = deg2rad($lat2);
-        $lng2_rad = deg2rad($lng2);
-        
-        $delta_lat = $lat2_rad - $lat1_rad;
-        $delta_lng = $lng2_rad - $lng1_rad;
-        
-        $a = sin($delta_lat / 2) * sin($delta_lat / 2) +
-             cos($lat1_rad) * cos($lat2_rad) *
-             sin($delta_lng / 2) * sin($delta_lng / 2);
-             
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-        
-        return $earth_radius * $c;
+        return RDM_Location_Utilities::calculate_haversine_distance($lat1, $lng1, $lat2, $lng2);
     }
     
     /**

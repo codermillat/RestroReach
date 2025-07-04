@@ -64,13 +64,20 @@ class RDM_Database {
     private function __construct() {
         global $wpdb;
         
-        // Define table names with proper prefix (using rr_ prefix)
+        // Define table names with proper prefix (using rr_ prefix for consistency)
         $this->tables = array(
             'delivery_agents' => $wpdb->prefix . 'rr_delivery_agents',
             'order_assignments' => $wpdb->prefix . 'rr_order_assignments',
             'location_tracking' => $wpdb->prefix . 'rr_location_tracking',
             'delivery_notes' => $wpdb->prefix . 'rr_delivery_notes',
             'delivery_areas' => $wpdb->prefix . 'rr_delivery_areas',
+            // Payment tables
+            'payment_transactions' => $wpdb->prefix . 'rr_payment_transactions',
+            'cash_reconciliation' => $wpdb->prefix . 'rr_cash_reconciliation',
+            // Notification tables (changed to rr_ prefix for consistency)
+            'notifications' => $wpdb->prefix . 'rr_notifications',
+            'notification_preferences' => $wpdb->prefix . 'rr_notification_preferences',
+            'notification_queue' => $wpdb->prefix . 'rr_notification_queue',
         );
     }
     
@@ -121,6 +128,23 @@ class RDM_Database {
             // Create delivery areas table
             $this->create_delivery_areas_table($charset_collate);
             error_log('RestroReach: Delivery areas table created');
+            
+            // Create payment tables
+            $this->create_payment_transactions_table($charset_collate);
+            error_log('RestroReach: Payment transactions table created');
+            
+            $this->create_cash_reconciliation_table($charset_collate);
+            error_log('RestroReach: Cash reconciliation table created');
+            
+            // Create notification tables
+            $this->create_notifications_table($charset_collate);
+            error_log('RestroReach: Notifications table created');
+            
+            $this->create_notification_preferences_table($charset_collate);
+            error_log('RestroReach: Notification preferences table created');
+            
+            $this->create_notification_queue_table($charset_collate);
+            error_log('RestroReach: Notification queue table created');
             
             // Update database version
             update_option('rdm_db_version', $this->db_version);
@@ -323,6 +347,180 @@ class RDM_Database {
         $result = dbDelta($sql);
         error_log('RestroReach: Delivery areas table dbDelta result: ' . print_r($result, true));
     }
+    
+    /**
+     * Create payment transactions table
+     *
+     * @since 1.0.0
+     * @param string $charset_collate Charset collation
+     * @return void
+     */
+    private function create_payment_transactions_table(string $charset_collate): void {
+        global $wpdb;
+        
+        $table_name = $this->tables['payment_transactions'];
+        
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            order_id bigint(20) NOT NULL,
+            agent_id mediumint(9) NULL,
+            payment_type varchar(20) NOT NULL DEFAULT 'cod',
+            payment_method varchar(50) NULL,
+            amount decimal(10, 2) NOT NULL,
+            collected_amount decimal(10, 2) NULL,
+            change_amount decimal(10, 2) NULL DEFAULT 0.00,
+            status varchar(20) NOT NULL DEFAULT 'pending',
+            transaction_reference varchar(100) NULL,
+            collected_at datetime NULL,
+            verified_at datetime NULL,
+            reconciled_at datetime NULL,
+            notes text NULL,
+            metadata text NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY order_id (order_id),
+            KEY agent_id (agent_id),
+            KEY payment_type (payment_type),
+            KEY status (status),
+            KEY collected_at (collected_at)
+        ) $charset_collate;";
+        
+        dbDelta($sql);
+    }
+    
+    /**
+     * Create cash reconciliation table
+     *
+     * @since 1.0.0
+     * @param string $charset_collate Charset collation
+     * @return void
+     */
+    private function create_cash_reconciliation_table(string $charset_collate): void {
+        global $wpdb;
+        
+        $table_name = $this->tables['cash_reconciliation'];
+        
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            agent_id mediumint(9) NOT NULL,
+            reconciliation_date date NOT NULL,
+            opening_balance decimal(10, 2) DEFAULT 0.00,
+            total_collections decimal(10, 2) DEFAULT 0.00,
+            total_change_given decimal(10, 2) DEFAULT 0.00,
+            closing_balance decimal(10, 2) DEFAULT 0.00,
+            submitted_amount decimal(10, 2) NULL,
+            variance decimal(10, 2) NULL,
+            status varchar(20) DEFAULT 'pending',
+            notes text NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY agent_date (agent_id, reconciliation_date),
+            KEY reconciliation_date (reconciliation_date),
+            KEY status (status)
+        ) $charset_collate;";
+        
+        dbDelta($sql);
+    }
+    
+    /**
+     * Create notifications table
+     *
+     * @since 1.0.0
+     * @param string $charset_collate Charset collation
+     * @return void
+     */
+    private function create_notifications_table(string $charset_collate): void {
+        global $wpdb;
+        
+        $table_name = $this->tables['notifications'];
+        
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) unsigned NULL,
+            type varchar(50) NOT NULL,
+            title varchar(255) NOT NULL,
+            message text NOT NULL,
+            data longtext NULL,
+            is_read tinyint(1) NOT NULL DEFAULT 0,
+            is_urgent tinyint(1) NOT NULL DEFAULT 0,
+            scheduled_for datetime NULL,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            read_at datetime NULL,
+            PRIMARY KEY (id),
+            KEY user_id (user_id),
+            KEY type (type),
+            KEY is_read (is_read),
+            KEY created_at (created_at),
+            KEY scheduled_for (scheduled_for)
+        ) $charset_collate;";
+        
+        dbDelta($sql);
+    }
+    
+    /**
+     * Create notification preferences table
+     *
+     * @since 1.0.0
+     * @param string $charset_collate Charset collation
+     * @return void
+     */
+    private function create_notification_preferences_table(string $charset_collate): void {
+        global $wpdb;
+        
+        $table_name = $this->tables['notification_preferences'];
+        
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) unsigned NOT NULL,
+            notification_type varchar(50) NOT NULL,
+            enabled tinyint(1) NOT NULL DEFAULT 1,
+            email_enabled tinyint(1) NOT NULL DEFAULT 1,
+            browser_enabled tinyint(1) NOT NULL DEFAULT 1,
+            sound_enabled tinyint(1) NOT NULL DEFAULT 1,
+            whatsapp_enabled tinyint(1) NOT NULL DEFAULT 0,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY user_type (user_id, notification_type),
+            KEY user_id (user_id)
+        ) $charset_collate;";
+        
+        dbDelta($sql);
+    }
+    
+    /**
+     * Create notification queue table
+     *
+     * @since 1.0.0
+     * @param string $charset_collate Charset collation
+     * @return void
+     */
+    private function create_notification_queue_table(string $charset_collate): void {
+        global $wpdb;
+        
+        $table_name = $this->tables['notification_queue'];
+        
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) unsigned NULL,
+            notification_id bigint(20) unsigned NOT NULL,
+            delivery_method varchar(20) NOT NULL DEFAULT 'browser',
+            status varchar(20) NOT NULL DEFAULT 'pending',
+            attempts int(11) NOT NULL DEFAULT 0,
+            scheduled_for datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            delivered_at datetime NULL,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY user_id (user_id),
+            KEY notification_id (notification_id),
+            KEY status (status),
+            KEY scheduled_for (scheduled_for)
+        ) $charset_collate;";
+        
+        dbDelta($sql);
+    }
     /**
      * Drop all plugin tables
      *
@@ -382,7 +580,12 @@ class RDM_Database {
                 'order_assignments' => 'create_order_assignments_table',
                 'location_tracking' => 'create_location_tracking_table',
                 'delivery_notes' => 'create_delivery_notes_table',
-                'delivery_areas' => 'create_delivery_areas_table'
+                'delivery_areas' => 'create_delivery_areas_table',
+                'payment_transactions' => 'create_payment_transactions_table',
+                'cash_reconciliation' => 'create_cash_reconciliation_table',
+                'notifications' => 'create_notifications_table',
+                'notification_preferences' => 'create_notification_preferences_table',
+                'notification_queue' => 'create_notification_queue_table'
             );
             
             foreach ($table_methods as $table_key => $method) {

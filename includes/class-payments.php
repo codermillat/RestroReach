@@ -128,94 +128,14 @@ class RDM_Payments {
     }
     
     /**
-     * Create payment tables if they don't exist
+     * Check if payment tables exist and create them if needed
      *
      * @since 1.0.0
      */
     private function maybe_create_payment_tables(): void {
-        global $wpdb;
-        
-        // Check if tables exist
-        $payment_transactions_table = $wpdb->prefix . 'rr_payment_transactions';
-        $cash_reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
-        
-        $tables_exist = $wpdb->get_var($wpdb->prepare(
-            "SHOW TABLES LIKE %s",
-            $payment_transactions_table
-        ));
-        
-        if (!$tables_exist) {
-            $this->create_payment_tables();
-        }
-    }
-    
-    /**
-     * Create payment-related database tables
-     *
-     * @since 1.0.0
-     */
-    public function create_payment_tables(): void {
-        global $wpdb;
-        
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        
-        $charset_collate = $wpdb->get_charset_collate();
-        
-        // Payment transactions table
-        $payment_transactions_table = $wpdb->prefix . 'rr_payment_transactions';
-        $sql1 = "CREATE TABLE $payment_transactions_table (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            order_id bigint(20) NOT NULL,
-            agent_id mediumint(9) NULL,
-            payment_type varchar(20) NOT NULL DEFAULT 'cod',
-            payment_method varchar(50) NULL,
-            amount decimal(10, 2) NOT NULL,
-            collected_amount decimal(10, 2) NULL,
-            change_amount decimal(10, 2) NULL DEFAULT 0.00,
-            status varchar(20) NOT NULL DEFAULT 'pending',
-            transaction_reference varchar(100) NULL,
-            collected_at datetime NULL,
-            verified_at datetime NULL,
-            reconciled_at datetime NULL,
-            notes text NULL,
-            metadata text NULL,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY order_id (order_id),
-            KEY agent_id (agent_id),
-            KEY payment_type (payment_type),
-            KEY status (status),
-            KEY collected_at (collected_at)
-        ) $charset_collate;";
-        
-        // Cash reconciliation table
-        $cash_reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
-        $sql2 = "CREATE TABLE $cash_reconciliation_table (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            agent_id mediumint(9) NOT NULL,
-            reconciliation_date date NOT NULL,
-            opening_balance decimal(10, 2) DEFAULT 0.00,
-            total_collections decimal(10, 2) DEFAULT 0.00,
-            total_change_given decimal(10, 2) DEFAULT 0.00,
-            closing_balance decimal(10, 2) DEFAULT 0.00,
-            submitted_amount decimal(10, 2) NULL,
-            variance decimal(10, 2) NULL,
-            status varchar(20) DEFAULT 'pending',
-            notes text NULL,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY agent_date (agent_id, reconciliation_date),
-            KEY reconciliation_date (reconciliation_date),
-            KEY status (status)
-        ) $charset_collate;";
-        
-        // Execute table creation
-        dbDelta($sql1);
-        dbDelta($sql2);
-        
-        error_log('RestroReach: Payment tables created successfully');
+        // Tables are now managed by the centralized database class
+        // This method is kept for backward compatibility but no longer needed
+        // The database class handles all table creation during plugin activation
     }
     
     // ========================================
@@ -285,7 +205,7 @@ class RDM_Payments {
             }
             
             // Update payment record
-            $payment_table = $wpdb->prefix . 'rr_payment_transactions';
+            $payment_table = $this->database->get_table_name('payment_transactions');
             $update_result = $wpdb->update(
                 $payment_table,
                 array(
@@ -375,7 +295,7 @@ class RDM_Payments {
     public function get_payment_record(int $order_id): ?object {
         global $wpdb;
         
-        $payment_table = $wpdb->prefix . 'rr_payment_transactions';
+        $payment_table = $this->database->get_table_name('payment_transactions');
         
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $payment_table WHERE order_id = %d",
@@ -402,7 +322,7 @@ class RDM_Payments {
         $payment_method = $order->get_payment_method();
         $payment_type = ($payment_method === 'cod') ? 'cod' : 'online';
         
-        $payment_table = $wpdb->prefix . 'rr_payment_transactions';
+        $payment_table = $this->database->get_table_name('payment_transactions');
         
         $result = $wpdb->insert(
             $payment_table,
@@ -435,7 +355,7 @@ class RDM_Payments {
     public function update_agent_reconciliation(int $agent_id, float $collected_amount, float $change_amount): bool {
         global $wpdb;
         
-        $reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
         $today = current_time('Y-m-d');
         
         // Check if reconciliation record exists for today
@@ -500,8 +420,8 @@ class RDM_Payments {
             return false;
         }
         
-        $payment_table = $wpdb->prefix . 'rr_payment_transactions';
-        $reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
         
         // Get payment transactions for the day
         $transactions = $wpdb->get_results($wpdb->prepare(
@@ -557,7 +477,7 @@ class RDM_Payments {
     public function daily_cash_reconciliation(): void {
         global $wpdb;
         
-        $agents_table = $wpdb->prefix . 'rr_delivery_agents';
+        $agents_table = $this->database->get_table_name('delivery_agents');
         $active_agents = $wpdb->get_results(
             "SELECT id, user_id FROM $agents_table WHERE status = 'active'"
         );
@@ -587,9 +507,10 @@ class RDM_Payments {
      * @since 1.0.0
      */
     public function ajax_collect_cod_payment(): void {
-        // Verify nonce
-        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
-            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+        // Use centralized security validation
+        $security_result = RDM_Security_Utilities::validate_agent_ajax_request('rdm_agent_mobile');
+        if (is_wp_error($security_result)) {
+            return; // Error already sent by validation method
         }
         
         // Get current agent
@@ -598,13 +519,21 @@ class RDM_Payments {
             wp_send_json_error(array('message' => __('Not authenticated as delivery agent', 'restaurant-delivery-manager')));
         }
         
-        // Sanitize input
-        $order_id = absint($_POST['order_id'] ?? 0);
-        $collected_amount = floatval($_POST['collected_amount'] ?? 0);
-        $notes = sanitize_textarea_field($_POST['notes'] ?? '');
+        // Use centralized input validation
+        $order_id = RDM_Security_Utilities::validate_order_id($_POST['order_id'] ?? 0);
+        if (is_wp_error($order_id)) {
+            return; // Error already sent by validation method
+        }
         
-        if (!$order_id || $collected_amount <= 0) {
-            wp_send_json_error(array('message' => __('Invalid order ID or collection amount', 'restaurant-delivery-manager')));
+        $collected_amount = RDM_Security_Utilities::validate_amount($_POST['collected_amount'] ?? 0);
+        if (is_wp_error($collected_amount)) {
+            return; // Error already sent by validation method
+        }
+        
+        $notes = RDM_Security_Utilities::sanitize_textarea($_POST['notes'] ?? '');
+        
+        if ($collected_amount <= 0) {
+            wp_send_json_error(array('message' => __('Invalid collection amount', 'restaurant-delivery-manager')));
         }
         
         // Process collection
@@ -692,7 +621,7 @@ class RDM_Payments {
         $notes = sanitize_textarea_field($_POST['notes'] ?? '');
         $date = sanitize_text_field($_POST['date'] ?? current_time('Y-m-d'));
         
-        $reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
         
         // Update reconciliation record
         $result = $wpdb->update(
@@ -776,7 +705,7 @@ class RDM_Payments {
             wp_send_json_error(array('message' => __('Invalid payment ID', 'restaurant-delivery-manager')));
         }
         
-        $payment_table = $wpdb->prefix . 'rr_payment_transactions';
+        $payment_table = $this->database->get_table_name('payment_transactions');
         
         $result = $wpdb->update(
             $payment_table,
@@ -824,7 +753,7 @@ class RDM_Payments {
             wp_send_json_error(array('message' => __('Invalid reconciliation ID', 'restaurant-delivery-manager')));
         }
         
-        $reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
         
         $result = $wpdb->update(
             $reconciliation_table,
@@ -884,7 +813,7 @@ class RDM_Payments {
         
         // Use notification system if available
         if (class_exists('RDM_Notifications')) {
-            $notifications = RDM_Notifications::get_instance();
+            $notifications = RDM_Notifications::instance();
             $notifications->send_notification(
                 $user_id,
                 'cash_reconciliation',
@@ -1015,7 +944,7 @@ class RDM_Payments {
     public function get_payment_statistics(array $filters = array()): array {
         global $wpdb;
         
-        $payment_table = $wpdb->prefix . 'rr_payment_transactions';
+        $payment_table = $this->database->get_table_name('payment_transactions');
         $where_clauses = array('1=1');
         $values = array();
         

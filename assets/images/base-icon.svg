@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#FF6B35"/>
+  
+  <!-- Restaurant/delivery truck icon -->
+  <g transform="translate(128, 180)">
+    <!-- Truck body -->
+    <rect x="20" y="40" width="120" height="60" rx="8" fill="#FFFFFF"/>
+    
+    <!-- Truck cabin -->
+    <rect x="140" y="30" width="70" height="70" rx="8" fill="#FFFFFF"/>
+    
+    <!-- Wheels -->
+    <circle cx="50" cy="120" r="18" fill="#333333"/>
+    <circle cx="50" cy="120" r="12" fill="#666666"/>
+    <circle cx="180" cy="120" r="18" fill="#333333"/>
+    <circle cx="180" cy="120" r="12" fill="#666666"/>
+    
+    <!-- Delivery box -->
+    <rect x="30" y="50" width="25" height="20" rx="3" fill="#FF6B35"/>
+    <rect x="65" y="50" width="25" height="20" rx="3" fill="#FF6B35"/>
+    <rect x="100" y="50" width="25" height="20" rx="3" fill="#FF6B35"/>
+    
+    <!-- Speed lines -->
+    <line x1="10" y1="35" x2="30" y2="35" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <line x1="5" y1="50" x2="25" y2="50" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <line x1="10" y1="65" x2="30" y2="65" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  
+  <!-- RestroReach text (simplified) -->
+  <text x="256" y="420" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="32" font-weight="bold">RestroReach</text>
+</svg>

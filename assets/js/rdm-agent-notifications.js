@@ -201,7 +201,7 @@
         showWelcomeNotification() {
             const notification = new Notification(this.settings.strings.new_assignment, {
                 body: 'You will now receive real-time delivery notifications.',
-                icon: '/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-192x192.png',
+                icon: this.settings.pluginUrl + 'assets/images/icon-192x192.png',
                 tag: 'rdm-welcome',
                 requireInteraction: false
             });
@@ -459,7 +459,7 @@
 
             const browserNotification = new Notification(notification.title, {
                 body: notification.message,
-                icon: '/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-192x192.png',
+                icon: this.settings.pluginUrl + 'assets/images/icon-192x192.png',
                 tag: `rdm-agent-${notification.id}`,
                 requireInteraction: notification.is_urgent || notification.type === 'new_assignment',
                 vibrate: notification.is_urgent ? [500, 200, 500] : [200]

@@ -12,11 +12,25 @@ if (!defined('ABSPATH')) exit;
 class RDM_Mobile_Frontend {
     private static $instance = null;
 
-    public static function get_instance() {
+    /**
+     * Main Mobile Frontend Instance
+     *
+     * @return RDM_Mobile_Frontend
+     */
+    public static function instance(): RDM_Mobile_Frontend {
         if (null === self::$instance) {
             self::$instance = new self();
         }
         return self::$instance;
+    }
+
+    /**
+     * Alias for backward compatibility
+     *
+     * @return RDM_Mobile_Frontend
+     */
+    public static function get_instance(): RDM_Mobile_Frontend {
+        return self::instance();
     }
 
     private function __construct() {
@@ -86,7 +100,8 @@ class RDM_Mobile_Frontend {
                 'nonce' => wp_create_nonce('rdm_agent_mobile'),
                 'dashboardUrl' => home_url('/delivery-agent/dashboard'),
                 'loginUrl' => home_url('/delivery-agent/login'),
-                'serviceWorkerUrl' => plugin_dir_url(__FILE__) . '../assets/js/sw.js',
+                'serviceWorkerUrl' => plugin_dir_url(__FILE__) . '../assets/js/rdm-service-worker.js',
+                'pluginUrl' => plugin_dir_url(__FILE__) . '../',
                 'manifestUrl' => home_url('/manifest.json'),
                 'strings' => array(
                     'loading' => __('Loading...', 'restaurant-delivery-manager'),
@@ -121,52 +136,112 @@ class RDM_Mobile_Frontend {
      * AJAX: Authenticate delivery agent login
      */
     public function ajax_agent_login() {
-        check_ajax_referer('rdm_agent_mobile', 'nonce');
-        $username = sanitize_user($_POST['username']);
-        $password = $_POST['password'];
+        // Security check
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+            wp_send_json_error(array('message' => __('Security check failed.', 'restaurant-delivery-manager')));
+        }
+        
+        // Rate limiting check
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $rate_limit_key = 'rdm_login_attempts_' . md5($ip);
+        $attempts = get_transient($rate_limit_key) ?: 0;
+        
+        if ($attempts >= 5) {
+            wp_send_json_error(array('message' => __('Too many login attempts. Please try again later.', 'restaurant-delivery-manager')));
+        }
+        
+        $username = sanitize_user($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
+        
+        if (empty($username) || empty($password)) {
+            wp_send_json_error(array('message' => __('Username and password are required.', 'restaurant-delivery-manager')));
+        }
+        
         $user = wp_authenticate($username, $password);
         if (is_wp_error($user)) {
+            // Increment failed attempts
+            set_transient($rate_limit_key, $attempts + 1, 300); // 5 minutes
             wp_send_json_error(array('message' => __('Invalid credentials.', 'restaurant-delivery-manager')));
         }
-        if (!in_array('delivery_agent', (array) $user->roles)) {
+        
+        // Check if user has delivery agent role
+        if (!user_can($user, 'delivery_agent')) {
             wp_send_json_error(array('message' => __('You are not authorized as a delivery agent.', 'restaurant-delivery-manager')));
         }
-        // Set a simple session cookie (for demo; use JWT or secure session for production)
+        
+        // Clear failed attempts on successful login
+        delete_transient($rate_limit_key);
+        
+        // Generate secure session token
+        $session_token = wp_generate_password(32, false);
+        $session_data = array(
+            'user_id' => $user->ID,
+            'created' => time(),
+            'ip' => $ip
+        );
+        
+        // Store session data securely
+        set_transient('rdm_agent_session_' . $session_token, $session_data, 3600); // 1 hour
+        
+        // Set secure session cookie
         setcookie(
-            'rdm_agent_logged_in',
-            $user->ID,
+            'rdm_agent_session',
+            $session_token,
             [
                 'expires' => time() + 3600,
                 'path' => COOKIEPATH,
                 'domain' => COOKIE_DOMAIN,
                 'secure' => is_ssl(),
                 'httponly' => true,
-                'samesite' => 'Lax',
+                'samesite' => 'Strict',
             ]
         );
+        
         wp_send_json_success(array('redirect' => home_url('/delivery-agent/dashboard')));
     }
 
     /**
-     * Check if agent is logged in (simple cookie check)
+     * Check if agent is logged in (secure session check)
      */
     private function is_agent_logged_in() {
-        if (!empty($_COOKIE['rdm_agent_logged_in'])) {
-            $user_id = intval($_COOKIE['rdm_agent_logged_in']);
-            $user = get_userdata($user_id);
-            if ($user && in_array('delivery_agent', (array) $user->roles)) {
-                return true;
+        return $this->get_authenticated_user_id() > 0;
+    }
+    
+    /**
+     * Get authenticated user ID from secure session
+     */
+    private function get_authenticated_user_id() {
+        if (!empty($_COOKIE['rdm_agent_session'])) {
+            $session_token = sanitize_text_field($_COOKIE['rdm_agent_session']);
+            $session_data = get_transient('rdm_agent_session_' . $session_token);
+            
+            if ($session_data && isset($session_data['user_id'])) {
+                $user = get_userdata($session_data['user_id']);
+                if ($user && user_can($user, 'delivery_agent')) {
+                    // Check if session is not expired and IP matches
+                    if ($session_data['created'] > (time() - 3600) && 
+                        $session_data['ip'] === ($_SERVER['REMOTE_ADDR'] ?? '')) {
+                        return $session_data['user_id'];
+                    }
+                }
             }
+            
+            // Invalid session, clear cookie
+            setcookie('rdm_agent_session', '', time() - 3600, COOKIEPATH, COOKIE_DOMAIN);
         }
-        return false;
+        return 0;
     }
 
     /**
      * AJAX: Get assigned orders for logged-in agent
      */
     public function ajax_get_agent_orders() {
-        check_ajax_referer('rdm_agent_mobile', 'nonce');
-        $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+        // Security check
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+            wp_send_json_error(array('message' => __('Security check failed.', 'restaurant-delivery-manager')));
+        }
+        
+        $user_id = $this->get_authenticated_user_id();
         if (!$user_id) {
             wp_send_json_error(array('message' => __('Not authenticated.', 'restaurant-delivery-manager')));
         }
@@ -180,9 +255,12 @@ class RDM_Mobile_Frontend {
      */
     public function ajax_accept_order() {
         try {
-            check_ajax_referer('rdm_agent_mobile', 'nonce');
+            // Security check
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+                throw new Exception(__('Security check failed.', 'restaurant-delivery-manager'));
+            }
             
-            $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+            $user_id = $this->get_authenticated_user_id();
             if (!$user_id) {
                 throw new Exception(__('Not authenticated.', 'restaurant-delivery-manager'));
             }
@@ -229,9 +307,12 @@ class RDM_Mobile_Frontend {
      */
     public function ajax_update_order_status() {
         try {
-            check_ajax_referer('rdm_agent_mobile', 'nonce');
+            // Security check
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+                throw new Exception(__('Security check failed.', 'restaurant-delivery-manager'));
+            }
             
-            $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+            $user_id = $this->get_authenticated_user_id();
             if (!$user_id) {
                 throw new Exception(__('Not authenticated.', 'restaurant-delivery-manager'));
             }
@@ -624,5 +705,5 @@ class RDM_Mobile_Frontend {
     }
 }
 
-// Initialize
-        RDM_Mobile_Frontend::get_instance(); 
+// Initialize the mobile frontend
+RDM_Mobile_Frontend::instance(); 

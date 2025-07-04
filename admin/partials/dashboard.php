@@ -98,7 +98,7 @@ if (!defined('ABSPATH')) {
             $maps_status = 'inactive';
             $maps_message = __('Google Maps integration not loaded', 'restaurant-delivery-manager');
             if (class_exists('RDM_Google_Maps')) {
-                $google_maps = RDM_Google_Maps::get_instance();
+                $google_maps = RDM_Google_Maps::instance();
                 $api_status = $google_maps->get_api_status();
                 
                 // Derive status string from existing keys

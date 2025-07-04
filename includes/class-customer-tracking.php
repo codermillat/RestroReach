@@ -27,16 +27,26 @@ class RDM_Customer_Tracking {
     private static ?RDM_Customer_Tracking $instance = null;
 
     /**
-     * Get singleton instance
+     * Main Customer Tracking Instance
+     *
+     * @since 1.0.0
+     * @return RDM_Customer_Tracking
+     */
+    public static function instance(): RDM_Customer_Tracking {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Alias for backward compatibility
      *
      * @since 1.0.0
      * @return RDM_Customer_Tracking
      */
     public static function get_instance(): RDM_Customer_Tracking {
-        if (null === self::$instance) {
-            self::$instance = new self();
-        }
-        return self::$instance;
+        return self::instance();
     }
 
     /**
@@ -190,7 +200,7 @@ class RDM_Customer_Tracking {
 
         // Calculate distance and time using Google Maps if available
         if (class_exists('RDM_Google_Maps')) {
-            $google_maps = RDM_Google_Maps::get_instance();
+            $google_maps = RDM_Google_Maps::instance();
             $route_data = $google_maps->calculate_route(
                 $agent_data['lat'],
                 $agent_data['lng'],
@@ -441,7 +451,7 @@ class RDM_Customer_Tracking {
     private function enqueue_tracking_assets(): void {
         // Enqueue Google Maps API first if available
         if (class_exists('RDM_Google_Maps')) {
-            RDM_Google_Maps::get_instance()->enqueue_maps_api();
+            RDM_Google_Maps::instance()->enqueue_maps_api();
         }
 
         // Enqueue CSS
@@ -542,7 +552,7 @@ class RDM_Customer_Tracking {
 
         // Geocode the address if Google Maps is available
         if (class_exists('RDM_Google_Maps')) {
-            $google_maps = RDM_Google_Maps::get_instance();
+            $google_maps = RDM_Google_Maps::instance();
             $coords = $google_maps->geocode_address($address);
             
             if ($coords) {
@@ -579,7 +589,7 @@ class RDM_Customer_Tracking {
         );
 
         if (class_exists('RDM_Google_Maps')) {
-            $google_maps = RDM_Google_Maps::get_instance();
+            $google_maps = RDM_Google_Maps::instance();
             $coords = $google_maps->geocode_address($address);
             
             if ($coords) {
@@ -606,7 +616,7 @@ class RDM_Customer_Tracking {
 
         // Get agent assignment
         $assignment = $wpdb->get_row($wpdb->prepare(
-            "SELECT agent_id, assigned_at FROM {$wpdb->prefix}rdm_order_assignments WHERE order_id = %d AND status IN ('assigned', 'picked_up')",
+            "SELECT agent_id, assigned_at FROM {$wpdb->prefix}rr_order_assignments WHERE order_id = %d AND status IN ('assigned', 'picked_up')",
             $order_id
         ));
 
@@ -622,7 +632,7 @@ class RDM_Customer_Tracking {
 
         // Get latest location
         $location = $wpdb->get_row($wpdb->prepare(
-            "SELECT latitude, longitude, recorded_at FROM {$wpdb->prefix}rdm_location_tracking 
+            "SELECT latitude, longitude, recorded_at FROM {$wpdb->prefix}rr_location_tracking 
              WHERE agent_id = %d AND recorded_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)
              ORDER BY recorded_at DESC LIMIT 1",
             $assignment->agent_id
@@ -743,17 +753,6 @@ class RDM_Customer_Tracking {
      * @return float Distance in kilometers
      */
     private function calculate_distance(float $lat1, float $lng1, float $lat2, float $lng2): float {
-        $earth_radius = 6371; // Earth's radius in kilometers
-
-        $lat_delta = deg2rad($lat2 - $lat1);
-        $lng_delta = deg2rad($lng2 - $lng1);
-
-        $a = sin($lat_delta / 2) * sin($lat_delta / 2) +
-             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-             sin($lng_delta / 2) * sin($lng_delta / 2);
-
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-
-        return $earth_radius * $c;
+        return RDM_Location_Utilities::calculate_haversine_distance($lat1, $lng1, $lat2, $lng2);
     }
 }

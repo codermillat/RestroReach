@@ -46,6 +46,13 @@ class RDM_ClassName {
         return self::$instance;
     }
     
+    /**
+     * Alias for backward compatibility
+     */
+    public static function get_instance(): RDM_ClassName {
+        return self::instance();
+    }
+    
     private function __construct() {
         $this->init_hooks();
     }

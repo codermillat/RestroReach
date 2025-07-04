@@ -53,15 +53,24 @@ class RDM_Google_Maps {
     }
 
     /**
-     * Get singleton instance
+     * Main Google Maps Instance
      *
      * @return RDM_Google_Maps
      */
-    public static function get_instance(): RDM_Google_Maps {
+    public static function instance(): RDM_Google_Maps {
         if (null === self::$instance) {
             self::$instance = new self();
         }
         return self::$instance;
+    }
+
+    /**
+     * Alias for backward compatibility
+     *
+     * @return RDM_Google_Maps
+     */
+    public static function get_instance(): RDM_Google_Maps {
+        return self::instance();
     }
 
     /**
@@ -71,7 +80,7 @@ class RDM_Google_Maps {
      * @return void
      */
     public static function init(): void {
-        $instance = self::get_instance();
+        $instance = self::instance();
         
         // Hook into WordPress actions
         add_action('wp_enqueue_scripts', array($instance, 'enqueue_scripts'));
@@ -643,63 +652,8 @@ class RDM_Google_Maps {
      * @return array|false Coordinates or false on failure
      */
     public static function geocode_address_static(string $address) {
-        $logger = wc_get_logger();
-        $context = ['source' => 'rdm-google-maps'];
-        
-        $api_key = self::get_api_key();
-        if (!$api_key) {
-            $logger->error('Cannot geocode (static) - Google Maps API key not configured', $context);
-            return false;
-        }
-        
-        $logger->debug('Geocoding address (static): ' . $address, $context);
-        
-        // Check cache first
-        $cache_key = 'rdm_geocode_' . md5($address);
-        $cached = get_transient($cache_key);
-        if ($cached !== false) {
-            $logger->debug('Using cached geocoding result (static) for: ' . $address, $context);
-            return $cached;
-        }
-
-        $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query(array(
-            'address' => $address,
-            'key' => $api_key
-        ));
-
-        $logger->debug('Making geocoding API request (static) to Google', $context);
-
-        $response = wp_remote_get($url, array('timeout' => 15));
-
-        if (is_wp_error($response)) {
-            $logger->error('Google Geocoding API error (static): ' . $response->get_error_message(), $context);
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        if ($data['status'] !== 'OK' || empty($data['results'])) {
-            if (isset($data['status'])) {
-                $logger->warning('Google Geocoding API status (static): ' . $data['status'] . ' for address: ' . $address, $context);
-            } else {
-                $logger->error('Invalid response from Google Geocoding API (static) for address: ' . $address, $context);
-            }
-            return false;
-        }
-
-        $result = array(
-            'lat' => $data['results'][0]['geometry']['location']['lat'],
-            'lng' => $data['results'][0]['geometry']['location']['lng'],
-            'formatted_address' => $data['results'][0]['formatted_address']
-        );
-
-        $logger->debug('Successfully geocoded address (static): ' . $address . ' -> lat=' . $result['lat'] . ', lng=' . $result['lng'], $context);
-
-        // Cache for 24 hours
-        set_transient($cache_key, $result, 24 * HOUR_IN_SECONDS);
-
-        return $result;
+        $instance = self::get_instance();
+        return $instance->geocode_address($address);
     }
 
     /**
@@ -774,18 +728,7 @@ class RDM_Google_Maps {
      * @return float Distance in kilometers
      */
     private function calculate_distance(float $lat1, float $lng1, float $lat2, float $lng2): float {
-        $earth_radius = 6371; // Earth's radius in kilometers
-
-        $lat_delta = deg2rad($lat2 - $lat1);
-        $lng_delta = deg2rad($lng2 - $lng1);
-
-        $a = sin($lat_delta / 2) * sin($lat_delta / 2) +
-             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-             sin($lng_delta / 2) * sin($lng_delta / 2);
-
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-
-        return $earth_radius * $c;
+        return RDM_Location_Utilities::calculate_haversine_distance($lat1, $lng1, $lat2, $lng2);
     }
 
     /**

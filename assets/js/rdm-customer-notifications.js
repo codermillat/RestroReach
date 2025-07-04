@@ -396,7 +396,7 @@
             if ('Notification' in window && Notification.permission === 'granted') {
                 const notification = new Notification(title, {
                     body: message,
-                    icon: '/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-192x192.png',
+                    icon: rdmCustomerNotifications.pluginUrl + 'assets/images/icon-192x192.png',
                     tag: 'rdm-order-update'
                 });
                 

@@ -118,6 +118,15 @@ class RDM_Notifications {
     }
     
     /**
+     * Alias for backward compatibility
+     *
+     * @return static Main instance
+     */
+    public static function get_instance(): static {
+        return self::instance();
+    }
+    
+    /**
      * Constructor - Private for singleton
      *
      * @since 2.0.0
@@ -129,8 +138,8 @@ class RDM_Notifications {
         // Initialize hooks
         $this->init_hooks();
         
-        // Create database tables
-        $this->create_database_tables();
+        // Database tables are now managed by the centralized database class
+        // No need to create tables here as they're handled during plugin activation
     }
     
     /**
@@ -177,79 +186,15 @@ class RDM_Notifications {
     }
     
     /**
-     * Create database tables for notifications
+     * Database tables are now managed by the centralized database class
+     * This method is kept for backward compatibility but no longer needed
      *
      * @since 2.0.0
      * @return void
      */
     private function create_database_tables(): void {
-        global $wpdb;
-        
-        $charset_collate = $wpdb->get_charset_collate();
-        
-        // Notifications table
-        $notifications_table = $wpdb->prefix . 'rdm_notifications';
-        $notifications_sql = "CREATE TABLE $notifications_table (
-            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-            user_id bigint(20) unsigned NULL,
-            type varchar(50) NOT NULL,
-            title varchar(255) NOT NULL,
-            message text NOT NULL,
-            data longtext NULL,
-            is_read tinyint(1) NOT NULL DEFAULT 0,
-            is_urgent tinyint(1) NOT NULL DEFAULT 0,
-            scheduled_for datetime NULL,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            read_at datetime NULL,
-            PRIMARY KEY (id),
-            KEY user_id (user_id),
-            KEY type (type),
-            KEY is_read (is_read),
-            KEY created_at (created_at),
-            KEY scheduled_for (scheduled_for)
-        ) $charset_collate;";
-        
-        // Notification preferences table
-        $preferences_table = $wpdb->prefix . 'rdm_notification_preferences';
-        $preferences_sql = "CREATE TABLE $preferences_table (
-            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-            user_id bigint(20) unsigned NOT NULL,
-            notification_type varchar(50) NOT NULL,
-            enabled tinyint(1) NOT NULL DEFAULT 1,
-            email_enabled tinyint(1) NOT NULL DEFAULT 1,
-            browser_enabled tinyint(1) NOT NULL DEFAULT 1,
-            sound_enabled tinyint(1) NOT NULL DEFAULT 1,
-            whatsapp_enabled tinyint(1) NOT NULL DEFAULT 0,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY user_type (user_id, notification_type),
-            KEY user_id (user_id)
-        ) $charset_collate;";
-        
-        // Notification queue for real-time delivery
-        $queue_table = $wpdb->prefix . 'rdm_notification_queue';
-        $queue_sql = "CREATE TABLE $queue_table (
-            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-            user_id bigint(20) unsigned NULL,
-            notification_id bigint(20) unsigned NOT NULL,
-            delivery_method varchar(20) NOT NULL DEFAULT 'browser',
-            status varchar(20) NOT NULL DEFAULT 'pending',
-            attempts int(11) NOT NULL DEFAULT 0,
-            scheduled_for datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            delivered_at datetime NULL,
-            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY user_id (user_id),
-            KEY notification_id (notification_id),
-            KEY status (status),
-            KEY scheduled_for (scheduled_for)
-        ) $charset_collate;";
-        
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($notifications_sql);
-        dbDelta($preferences_sql);
-        dbDelta($queue_sql);
+        // Tables are now managed by the centralized database class
+        // No need to create tables here as they're handled during plugin activation
     }
 
     /**
@@ -362,20 +307,21 @@ class RDM_Notifications {
     public function notify_order_assigned($order_id, $agent_id) {
         $agent = get_userdata($agent_id);
         
-        $this->send_notification(
+        $this->send_enhanced_notification(
             'order_assigned',
             __('Order Assigned', 'restaurant-delivery-manager'),
             sprintf(__('Order #%d assigned to %s', 'restaurant-delivery-manager'), $order_id, $agent->display_name),
-            array('order_id' => $order_id, 'agent_id' => $agent_id)
+            array('order_id' => $order_id, 'agent_id' => $agent_id),
+            array('delivery_agent')
         );
 
         // Send to specific agent
-        $this->send_notification_to_user(
-            $agent_id,
+        $this->send_enhanced_notification(
             'new_assignment',
             __('New Delivery Assignment', 'restaurant-delivery-manager'),
             sprintf(__('You have been assigned order #%d', 'restaurant-delivery-manager'), $order_id),
-            array('order_id' => $order_id, 'urgent' => true)
+            array('order_id' => $order_id, 'urgent' => true),
+            array('delivery_agent')
         );
     }
 
@@ -423,21 +369,22 @@ class RDM_Notifications {
             $agent_name = __('Delivery Agent', 'restaurant-delivery-manager');
         }
 
-        $this->send_notification(
+        $this->send_enhanced_notification(
             'order_picked_up',
             __('Order Picked Up', 'restaurant-delivery-manager'),
             sprintf(__('Order #%d has been picked up by %s and is now out for delivery', 'restaurant-delivery-manager'), $order_id, $agent_name),
-            array('order_id' => $order_id, 'agent_id' => $agent_id)
+            array('order_id' => $order_id, 'agent_id' => $agent_id),
+            array('delivery_agent')
         );
 
         // Send notification to agent if available
         if ($agent_id) {
-            $this->send_notification_to_user(
-                $agent_id,
+            $this->send_enhanced_notification(
                 'order_picked_up',
                 __('Order Picked Up', 'restaurant-delivery-manager'),
                 sprintf(__('You have picked up order #%d. Please proceed to delivery location.', 'restaurant-delivery-manager'), $order_id),
-                array('order_id' => $order_id, 'urgent' => true)
+                array('order_id' => $order_id, 'urgent' => true),
+                array('delivery_agent')
             );
         }
     }
@@ -488,21 +435,22 @@ class RDM_Notifications {
             $agent_name = __('Delivery Agent', 'restaurant-delivery-manager');
         }
 
-        $this->send_notification(
+        $this->send_enhanced_notification(
             'order_delivered',
             __('Order Delivered', 'restaurant-delivery-manager'),
             sprintf(__('Order #%d has been successfully delivered by %s', 'restaurant-delivery-manager'), $order_id, $agent_name),
-            array('order_id' => $order_id, 'agent_id' => $agent_id)
+            array('order_id' => $order_id, 'agent_id' => $agent_id),
+            array('delivery_agent')
         );
 
         // Send notification to agent if available
         if ($agent_id) {
-            $this->send_notification_to_user(
-                $agent_id,
+            $this->send_enhanced_notification(
                 'delivery_completed',
                 __('Delivery Completed', 'restaurant-delivery-manager'),
                 sprintf(__('You have successfully delivered order #%d. Great job!', 'restaurant-delivery-manager'), $order_id),
-                array('order_id' => $order_id)
+                array('order_id' => $order_id),
+                array('delivery_agent')
             );
         }
 
@@ -511,16 +459,16 @@ class RDM_Notifications {
     }
 
     /**
-     * Send enhanced notification with role-based targeting
+     * Send enhanced notification with multiple delivery methods
      *
      * @since 2.0.0
      * @param string $type Notification type
      * @param string $title Notification title
      * @param string $message Notification message
      * @param array $data Additional data
-     * @param array $target_roles Target user roles
+     * @param array $target_roles Array of user roles to target
      * @param bool $is_urgent Whether notification is urgent
-     * @param int|null $user_id Specific user ID (optional)
+     * @param int|null $user_id Specific user ID (overrides target_roles)
      * @return bool Success status
      */
     public function send_enhanced_notification(string $type, string $title, string $message, array $data = array(), array $target_roles = array(), bool $is_urgent = false, ?int $user_id = null): bool {
@@ -539,6 +487,10 @@ class RDM_Notifications {
             // Determine target users
             $target_users = array();
             if ($user_id) {
+                // Validate specific user
+                if (!get_userdata($user_id)) {
+                    throw new Exception(__('Invalid user ID', 'restaurant-delivery-manager'));
+                }
                 $target_users = array($user_id);
             } elseif (!empty($target_roles)) {
                 $target_users = $this->get_users_by_roles($target_roles);
@@ -554,20 +506,25 @@ class RDM_Notifications {
                     $success_count++;
                 }
             } else {
-                // Targeted notifications
-                foreach ($target_users as $target_user_id) {
-                    if ($this->should_send_notification($target_user_id, $type)) {
-                        $notification_id = $this->create_notification_record($target_user_id, $type, $title, $message, $data, $is_urgent);
-                        if ($notification_id) {
-                            $this->queue_multiple_delivery_methods($notification_id, $target_user_id, $type);
-                            $success_count++;
-                        }
+                // Send to specific users
+                foreach ($target_users as $user_id) {
+                    // Check user notification preferences
+                    if (!$this->should_send_notification($user_id, $type)) {
+                        continue;
+                    }
+                    
+                    $notification_id = $this->create_notification_record($user_id, $type, $title, $message, $data, $is_urgent);
+                    if ($notification_id) {
+                        $this->queue_multiple_delivery_methods($notification_id, $user_id, $type);
+                        $success_count++;
                     }
                 }
             }
             
-            // Add to real-time queue
-            $this->add_to_realtime_queue($type, $title, $message, $data, $is_urgent, $target_users);
+            // Add to real-time queue for immediate delivery
+            if ($success_count > 0) {
+                $this->add_to_realtime_queue($type, $title, $message, $data, $is_urgent, $target_users);
+            }
             
             return $success_count > 0;
             
@@ -576,9 +533,9 @@ class RDM_Notifications {
             return false;
         }
     }
-    
+
     /**
-     * Send a general notification (Legacy support)
+     * Send notification (legacy method - now uses enhanced notification)
      *
      * @since 1.0.0
      * @param string $type Notification type
@@ -588,7 +545,8 @@ class RDM_Notifications {
      * @return bool Success status
      */
     public function send_notification($type, $title, $message, $data = array()) {
-        return $this->send_enhanced_notification($type, $title, $message, $data, array(), false, null);
+        // Use enhanced notification method for backward compatibility
+        return $this->send_enhanced_notification($type, $title, $message, $data);
     }
     
     /**
@@ -607,7 +565,7 @@ class RDM_Notifications {
         global $wpdb;
         
         $result = $wpdb->insert(
-            $wpdb->prefix . 'rdm_notifications',
+            $this->database->get_table_name('notifications'),
             array(
                 'user_id' => $user_id,
                 'type' => sanitize_text_field($type),
@@ -659,7 +617,7 @@ class RDM_Notifications {
         global $wpdb;
         
         $preference = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}rdm_notification_preferences 
+            "SELECT * FROM {$this->database->get_table_name('notification_preferences')} 
              WHERE user_id = %d AND notification_type = %s",
             $user_id,
             $notification_type
@@ -707,7 +665,7 @@ class RDM_Notifications {
         global $wpdb;
         
         $result = $wpdb->insert(
-            $wpdb->prefix . 'rdm_notification_queue',
+            $this->database->get_table_name('notification_queue'),
             array(
                 'user_id' => $user_id,
                 'notification_id' => $notification_id,
@@ -761,54 +719,7 @@ class RDM_Notifications {
         update_option('rdm_realtime_notifications', $this->realtime_queue, false);
     }
 
-    /**
-     * Send notification to specific user
-     *
-     * @since 1.0.0
-     * @param int $user_id User ID
-     * @param string $type Notification type
-     * @param string $title Notification title
-     * @param string $message Notification message
-     * @param array $data Additional data
-     * @return bool Success status
-     */
-    public function send_notification_to_user($user_id, $type, $title, $message, $data = array()) {
-        global $wpdb;
 
-        // Validate inputs
-        $user_id = absint($user_id);
-        if (!$user_id || empty($type) || empty($title) || empty($message)) {
-            error_log('RDM Notifications: Invalid parameters for send_notification_to_user');
-            return false;
-        }
-
-        // Verify user exists
-        if (!get_userdata($user_id)) {
-            error_log("RDM Notifications: User #{$user_id} not found for notification");
-            return false;
-        }
-
-        $result = $wpdb->insert(
-            $wpdb->prefix . 'rdm_notifications',
-            array(
-                'user_id' => $user_id,
-                'type' => sanitize_text_field($type),
-                'title' => sanitize_text_field($title),
-                'message' => sanitize_textarea_field($message),
-                'data' => wp_json_encode($data),
-                'created_at' => current_time('mysql'),
-                'is_read' => 0
-            ),
-            array('%d', '%s', '%s', '%s', '%s', '%s', '%d')
-        );
-
-        if (false === $result) {
-            error_log('RDM Notifications: Failed to insert user notification: ' . $wpdb->last_error);
-            return false;
-        }
-
-        return true;
-    }
 
     /**
      * Trigger browser notification
@@ -883,7 +794,7 @@ class RDM_Notifications {
         global $wpdb;
         
         $preferences = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}rdm_notification_preferences 
+            "SELECT * FROM {$this->database->get_table_name('notification_preferences')} 
              WHERE user_id = %d AND notification_type = %s",
             $user_id,
             $notification_type
@@ -1071,7 +982,7 @@ class RDM_Notifications {
             
             global $wpdb;
             $result = $wpdb->update(
-                $wpdb->prefix . 'rdm_notifications',
+                $this->database->get_table_name('notifications'),
                 array(
                     'is_read' => 1,
                     'read_at' => current_time('mysql')
@@ -1116,7 +1027,7 @@ class RDM_Notifications {
         
         global $wpdb;
         $notifications = $wpdb->get_results($wpdb->prepare("
-            SELECT * FROM {$wpdb->prefix}rdm_notifications 
+            SELECT * FROM {$this->database->get_table_name('notifications')} 
             WHERE (user_id = %d OR user_id IS NULL)
             ORDER BY created_at DESC 
             LIMIT %d
@@ -1187,7 +1098,7 @@ class RDM_Notifications {
             
             // Insert or update preferences
             $result = $wpdb->replace(
-                $wpdb->prefix . 'rdm_notification_preferences',
+                $this->database->get_table_name('notification_preferences'),
                 array_merge($clean_preferences, array(
                     'user_id' => $user_id,
                     'notification_type' => $notification_type
@@ -1269,13 +1180,13 @@ class RDM_Notifications {
             
             global $wpdb;
             $unread_count = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}rdm_notifications 
+                "SELECT COUNT(*) FROM {$this->database->get_table_name('notifications')} 
                  WHERE (user_id = %d OR user_id IS NULL) AND is_read = 0",
                 $user_id
             ));
             
             $urgent_count = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}rdm_notifications 
+                "SELECT COUNT(*) FROM {$this->database->get_table_name('notifications')} 
                  WHERE (user_id = %d OR user_id IS NULL) AND is_read = 0 AND is_urgent = 1",
                 $user_id
             ));
@@ -1500,7 +1411,7 @@ class RDM_Notifications {
         global $wpdb;
         
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}rdm_notifications 
+            "SELECT * FROM {$wpdb->prefix}rr_notifications 
              WHERE JSON_EXTRACT(data, '$.order_id') = %d 
              ORDER BY created_at DESC",
             $order_id
@@ -1615,7 +1526,7 @@ class RDM_Notifications {
         
         // Delete notifications older than 30 days
         $result = $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}rdm_notifications 
+            "DELETE FROM {$this->database->get_table_name('notifications')} 
              WHERE created_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
             30
         ));
@@ -1626,7 +1537,7 @@ class RDM_Notifications {
         
         // Clean up delivery queue
         $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}rdm_notification_queue 
+            "DELETE FROM {$this->database->get_table_name('notification_queue')} 
              WHERE created_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
             7
         ));
@@ -1750,6 +1661,7 @@ class RDM_Notifications {
             'refresh_interval' => 10000, // 10 seconds for agents (more frequent)
             'user_id' => $user->ID,
             'user_role' => $user->roles[0] ?? 'delivery_agent',
+            'pluginUrl' => RDM_PLUGIN_URL,
             'sounds' => array(
                 'new_assignment' => RDM_PLUGIN_URL . 'assets/sounds/new_assignment.mp3',
                 'order_ready' => RDM_PLUGIN_URL . 'assets/sounds/urgent_alert.mp3',
@@ -1791,6 +1703,7 @@ class RDM_Notifications {
         wp_localize_script('rdm-customer-notifications', 'rdmCustomerNotifications', array(
             'ajaxurl' => admin_url('admin-ajax.php'),
             'refresh_interval' => 30000, // 30 seconds for customers
+            'pluginUrl' => RDM_PLUGIN_URL,
             'strings' => array(
                 'order_preparing' => __('Your order is being prepared', 'restaurant-delivery-manager'),
                 'order_dispatched' => __('Your order is out for delivery', 'restaurant-delivery-manager'),

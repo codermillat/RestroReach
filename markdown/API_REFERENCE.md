@@ -285,6 +285,8 @@ rdm_get_order_tracking($order_id, $tracking_key)
 ```php
 // Gets singleton instance of Google Maps class
 // Implemented in class-rdm-google-maps.php
+RDM_Google_Maps::instance(): RDM_Google_Maps
+// Backward compatibility alias
 RDM_Google_Maps::get_instance(): RDM_Google_Maps
 
 // Gets Google Maps API key from settings
@@ -344,6 +346,8 @@ RDM_Google_Maps::calculate_distance_between_points(float $lat1, float $lng1, flo
 ```php
 // Gets singleton instance of GPS Tracking class
 // Implemented in class-rdm-gps-tracking.php
+RDM_GPS_Tracking::instance(): RDM_GPS_Tracking
+// Backward compatibility alias
 RDM_GPS_Tracking::get_instance(): RDM_GPS_Tracking
 
 // Saves agent location to database
@@ -404,7 +408,7 @@ RDM_Customer_Tracking::generate_tracking_key(int $order_id): string
 ```php
 // Gets singleton instance of Database class
 // Implemented in class-database.php
-RDM_Database::get_instance(): RDM_Database
+RDM_Database::instance(): RDM_Database
 
 // Creates all required database tables
 // Implemented in class-database.php
@@ -504,7 +508,7 @@ RDM_WooCommerce_Integration::get_delivery_fee(int $order_id): float
 ```php
 // Gets singleton instance of User Roles class
 // Implemented in class-user-roles.php
-RDM_User_Roles::get_instance(): RDM_User_Roles
+RDM_User_Roles::instance(): RDM_User_Roles
 
 // Gets all delivery agents
 // Implemented in class-user-roles.php

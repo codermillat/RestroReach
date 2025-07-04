@@ -34,6 +34,7 @@ if (!defined('ABSPATH')) {
 define('RDM_VERSION', '1.0.0');
 define('RDM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RDM_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('RDM_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('RDM_PLUGIN_BASENAME', plugin_basename(__FILE__));
 define('RDM_TEXT_DOMAIN', 'restaurant-delivery-manager');
 
@@ -225,6 +226,9 @@ final class RestaurantDeliveryManager {
         $core_files = array(
             'includes/class-database.php',
             'includes/class-user-roles.php',
+            'includes/class-location-utilities.php',
+            'includes/class-security-utilities.php',
+            'includes/class-error-handling.php',
         );
         
         foreach ($core_files as $file) {
@@ -309,28 +313,28 @@ final class RestaurantDeliveryManager {
             $this->woocommerce = RDM_WooCommerce_Integration::instance();
         }
         
-        // Initialize mobile frontend (using correct singleton method)
+        // Initialize mobile frontend (using standard singleton method)
         if (class_exists('RDM_Mobile_Frontend')) {
-            $this->mobile_frontend = RDM_Mobile_Frontend::get_instance();
+            $this->mobile_frontend = RDM_Mobile_Frontend::instance();
         }
         
         if (class_exists('RDM_Customer_Tracking')) {
-            $this->customer_tracking = RDM_Customer_Tracking::get_instance();
+            $this->customer_tracking = RDM_Customer_Tracking::instance();
         }
         
-        // Initialize GPS tracking (using correct singleton method)
+        // Initialize GPS tracking (using standard singleton method)
         if (class_exists('RDM_GPS_Tracking')) {
-            $this->gps_tracking = RDM_GPS_Tracking::get_instance();
+            $this->gps_tracking = RDM_GPS_Tracking::instance();
         }
         
         if (class_exists('RDM_Notifications')) {
-            $this->notifications = RDM_Notifications::get_instance();
+            $this->notifications = RDM_Notifications::instance();
         }
         
         // Initialize Google Maps
         if (class_exists('RDM_Google_Maps')) {
             RDM_Google_Maps::init();
-            $this->google_maps = RDM_Google_Maps::get_instance();
+            $this->google_maps = RDM_Google_Maps::instance();
         }
         
         if (class_exists('RDM_Payments')) {
@@ -848,6 +852,61 @@ final class RestaurantDeliveryManager {
     }
     
     /**
+     * AJAX: Update agent location
+     *
+     * @return void
+     */
+    public function ajax_update_location(): void {
+        // Security check
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm-frontend-nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+            return;
+        }
+        
+        // Delegate to GPS tracking class
+        if ($this->gps_tracking) {
+            $this->gps_tracking->handle_location_update();
+        } else {
+            wp_send_json_error(array('message' => __('GPS tracking not available', 'restaurant-delivery-manager')));
+        }
+    }
+    
+    /**
+     * AJAX: Get order tracking information
+     *
+     * @return void
+     */
+    public function ajax_get_order_tracking(): void {
+        // Security check for logged-in users (agents/managers)
+        if (is_user_logged_in() && !wp_verify_nonce($_POST['nonce'] ?? '', 'rdm-frontend-nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+            return;
+        }
+        
+        // For public tracking, use tracking key validation instead
+        if (!is_user_logged_in()) {
+            $tracking_key = sanitize_text_field($_POST['tracking_key'] ?? '');
+            if (empty($tracking_key)) {
+                wp_send_json_error(array('message' => __('Tracking key required', 'restaurant-delivery-manager')));
+                return;
+            }
+        }
+        
+        // Delegate to customer tracking class
+        if ($this->customer_tracking) {
+            $order_id = absint($_POST['order_id'] ?? 0);
+            if ($order_id) {
+                $tracking_data = $this->customer_tracking->get_order_tracking_data($order_id);
+                wp_send_json_success($tracking_data);
+            } else {
+                wp_send_json_error(array('message' => __('Invalid order ID', 'restaurant-delivery-manager')));
+            }
+        } else {
+            wp_send_json_error(array('message' => __('Customer tracking not available', 'restaurant-delivery-manager')));
+        }
+    }
+
+    /**
      * Daily cleanup tasks
      *
      * @return void
@@ -1019,4 +1078,4 @@ add_action('init', function() {
 });
 
 // Initialize the plugin
-RDM(); 
+RDM();

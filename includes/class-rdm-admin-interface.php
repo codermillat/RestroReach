@@ -290,7 +290,7 @@ class RDM_Admin_Interface {
             
             // Enqueue Google Maps integration
             if (class_exists('RDM_Google_Maps')) {
-                RDM_Google_Maps::get_instance()->enqueue_admin_maps_script();
+                RDM_Google_Maps::instance()->enqueue_admin_maps_script();
             }
             
             // Enqueue admin maps JavaScript
@@ -1778,7 +1778,7 @@ class RDM_Admin_Interface {
         
         // Google Maps API Status
         if (class_exists('RDM_Google_Maps')) {
-            $google_maps = RDM_Google_Maps::get_instance();
+            $google_maps = RDM_Google_Maps::instance();
             $maps_status = $google_maps->get_api_status();
             
             $status['google_maps_api'] = array(
@@ -1844,7 +1844,7 @@ class RDM_Admin_Interface {
         // Use Google Maps class if available
         if (class_exists('RDM_Google_Maps')) {
             try {
-                $google_maps = RDM_Google_Maps::get_instance();
+                $google_maps = RDM_Google_Maps::instance();
                 $coordinates = $google_maps->geocode_address($address);
                 
                 if ($coordinates && isset($coordinates['lat'], $coordinates['lng'])) {

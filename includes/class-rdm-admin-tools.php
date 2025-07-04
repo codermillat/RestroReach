@@ -61,7 +61,7 @@ class RDM_Admin_Tools {
      */
     private function __construct() {
         $this->database = RDM_Database::instance();
-        $this->database_test_available = false; // Database test class not implemented yet
+        $this->database_test_available = true; // Database test functionality now implemented
         
         // Add admin menu
         add_action('admin_menu', array($this, 'add_admin_menu'));
@@ -413,8 +413,73 @@ class RDM_Admin_Tools {
             return;
         }
         
-        // TODO: Implement database testing functionality
-        wp_send_json_error(__('Database test functionality coming soon.', 'restaurant-delivery-manager'));
+        // Implement basic database connectivity test
+        global $wpdb;
+        
+        $results = array();
+        
+        // Test 1: Basic connectivity
+        $test_query = $wpdb->get_var("SELECT 1");
+        if ($test_query === '1') {
+            $results['connectivity'] = array(
+                'status' => 'success',
+                'message' => __('Database connection successful', 'restaurant-delivery-manager')
+            );
+        } else {
+            $results['connectivity'] = array(
+                'status' => 'error',
+                'message' => __('Database connection failed', 'restaurant-delivery-manager')
+            );
+        }
+        
+        // Test 2: Check plugin tables
+        $plugin_tables = array(
+            $wpdb->prefix . 'rr_location_tracking',
+            $wpdb->prefix . 'rr_order_assignments',
+            $wpdb->prefix . 'rr_delivery_agents',
+            $wpdb->prefix . 'rr_payment_transactions',
+            $wpdb->prefix . 'rr_cash_reconciliation'
+        );
+        
+        foreach ($plugin_tables as $table) {
+            $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table));
+            if ($table_exists) {
+                $results['table_' . str_replace($wpdb->prefix, '', $table)] = array(
+                    'status' => 'success',
+                    'message' => sprintf(__('Table %s exists', 'restaurant-delivery-manager'), $table)
+                );
+            } else {
+                $results['table_' . str_replace($wpdb->prefix, '', $table)] = array(
+                    'status' => 'error',
+                    'message' => sprintf(__('Table %s missing', 'restaurant-delivery-manager'), $table)
+                );
+            }
+        }
+        
+        // Test 3: Check WooCommerce integration
+        if (class_exists('WooCommerce')) {
+            $wc_tables = array(
+                $wpdb->prefix . 'wc_order_stats',
+                $wpdb->prefix . 'wc_product_meta_lookup'
+            );
+            
+            foreach ($wc_tables as $table) {
+                $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table));
+                if ($table_exists) {
+                    $results['wc_' . str_replace($wpdb->prefix, '', $table)] = array(
+                        'status' => 'success',
+                        'message' => sprintf(__('WooCommerce table %s exists', 'restaurant-delivery-manager'), $table)
+                    );
+                } else {
+                    $results['wc_' . str_replace($wpdb->prefix, '', $table)] = array(
+                        'status' => 'warning',
+                        'message' => sprintf(__('WooCommerce table %s missing (HPOS mode?)', 'restaurant-delivery-manager'), $table)
+                    );
+                }
+            }
+        }
+        
+        wp_send_json_success($results);
     }
     
     /**
@@ -438,8 +503,130 @@ class RDM_Admin_Tools {
             return;
         }
         
-        // TODO: Implement sample data generation functionality
-        wp_send_json_error(__('Sample data generation functionality coming soon.', 'restaurant-delivery-manager'));
+        // Generate sample data for testing
+        $results = array();
+        
+        try {
+            // Generate sample delivery agents
+            $agent_count = 3;
+            for ($i = 1; $i <= $agent_count; $i++) {
+                $username = 'agent' . $i;
+                $email = 'agent' . $i . '@example.com';
+                
+                // Check if user already exists
+                $existing_user = get_user_by('email', $email);
+                if (!$existing_user) {
+                    $user_id = wp_create_user($username, 'password123', $email);
+                    if (!is_wp_error($user_id)) {
+                        $user = get_userdata($user_id);
+                        $user->set_role('delivery_agent');
+                        
+                        // Add agent metadata
+                        update_user_meta($user_id, 'first_name', 'Delivery');
+                        update_user_meta($user_id, 'last_name', 'Agent ' . $i);
+                        update_user_meta($user_id, 'billing_phone', '+1-555-123-' . str_pad($i, 4, '0', STR_PAD_LEFT));
+                        
+                        $results['agents'][] = array(
+                            'id' => $user_id,
+                            'name' => 'Delivery Agent ' . $i,
+                            'email' => $email
+                        );
+                    }
+                } else {
+                    $results['agents'][] = array(
+                        'id' => $existing_user->ID,
+                        'name' => $existing_user->display_name,
+                        'email' => $email,
+                        'note' => __('Already exists', 'restaurant-delivery-manager')
+                    );
+                }
+            }
+            
+            // Generate sample location data for agents
+            global $wpdb;
+            $agents = get_users(array('role' => 'delivery_agent'));
+            
+            foreach ($agents as $agent) {
+                // Generate 5 sample location points around NYC
+                $base_lat = 40.7128;
+                $base_lng = -74.0060;
+                
+                for ($j = 0; $j < 5; $j++) {
+                    $lat = $base_lat + (rand(-100, 100) / 1000); // Small random offset
+                    $lng = $base_lng + (rand(-100, 100) / 1000);
+                    
+                    $wpdb->insert(
+                        $wpdb->prefix . 'rr_location_tracking',
+                        array(
+                            'agent_id' => $agent->ID,
+                            'latitude' => $lat,
+                            'longitude' => $lng,
+                            'accuracy' => rand(5, 25),
+                            'battery_level' => rand(20, 95),
+                            'created_at' => date('Y-m-d H:i:s', time() - ($j * 3600)) // Last 5 hours
+                        ),
+                        array('%d', '%f', '%f', '%f', '%d', '%s')
+                    );
+                }
+            }
+            
+            $results['locations'] = array(
+                'count' => count($agents) * 5,
+                'message' => __('Sample location data generated', 'restaurant-delivery-manager')
+            );
+            
+            // Generate sample orders if WooCommerce is active
+            if (class_exists('WooCommerce')) {
+                $order_count = 5;
+                for ($i = 1; $i <= $order_count; $i++) {
+                    $order = wc_create_order();
+                    
+                    // Add sample product
+                    $product = wc_get_product_by_sku('sample-product');
+                    if (!$product) {
+                        // Create sample product if it doesn't exist
+                        $product = new WC_Product_Simple();
+                        $product->set_name('Sample Pizza');
+                        $product->set_sku('sample-product');
+                        $product->set_price(15.99);
+                        $product->save();
+                    }
+                    
+                    $order->add_product($product, 1);
+                    
+                    // Set sample address
+                    $order->set_address(array(
+                        'first_name' => 'John',
+                        'last_name' => 'Doe',
+                        'address_1' => '123 Sample St',
+                        'city' => 'New York',
+                        'state' => 'NY',
+                        'postcode' => '10001',
+                        'country' => 'US'
+                    ), 'shipping');
+                    
+                    $order->set_status('processing');
+                    $order->save();
+                    
+                    $results['orders'][] = array(
+                        'id' => $order->get_id(),
+                        'status' => $order->get_status(),
+                        'total' => $order->get_total()
+                    );
+                }
+            }
+            
+            wp_send_json_success(array(
+                'message' => __('Sample data generated successfully', 'restaurant-delivery-manager'),
+                'data' => $results
+            ));
+            
+        } catch (Exception $e) {
+            wp_send_json_error(array(
+                'message' => __('Error generating sample data', 'restaurant-delivery-manager'),
+                'error' => $e->getMessage()
+            ));
+        }
     }
     
     /**

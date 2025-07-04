@@ -19,7 +19,11 @@
      */
     async function registerServiceWorker() {
         try {
-            const registration = await navigator.serviceWorker.register(rdmAgent.serviceWorkerUrl, {
+            // Pass plugin URL to service worker via URL parameters
+            const serviceWorkerUrl = new URL(rdmAgent.serviceWorkerUrl);
+            serviceWorkerUrl.searchParams.set('pluginUrl', rdmAgent.pluginUrl);
+            
+            const registration = await navigator.serviceWorker.register(serviceWorkerUrl.toString(), {
                 scope: '/'
             });
 

@@ -60,7 +60,7 @@ class RDM_Distance_Shipping extends WC_Shipping_Method {
         
         // Initialize Google Maps if available
         if (class_exists('RDM_Google_Maps')) {
-            $this->google_maps = RDM_Google_Maps::get_instance();
+            $this->google_maps = RDM_Google_Maps::instance();
         }
         
         $this->init();
@@ -343,20 +343,7 @@ class RDM_Distance_Shipping extends WC_Shipping_Method {
      * @return float Distance in kilometers
      */
     private function haversine_distance(float $lat1, float $lng1, float $lat2, float $lng2): float {
-        $earth_radius = 6371; // Earth's radius in kilometers
-        
-        $lat1 = deg2rad($lat1);
-        $lng1 = deg2rad($lng1);
-        $lat2 = deg2rad($lat2);
-        $lng2 = deg2rad($lng2);
-        
-        $dlat = $lat2 - $lat1;
-        $dlng = $lng2 - $lng1;
-        
-        $a = sin($dlat / 2) * sin($dlat / 2) + cos($lat1) * cos($lat2) * sin($dlng / 2) * sin($dlng / 2);
-        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-        
-        return $earth_radius * $c;
+        return RDM_Location_Utilities::calculate_haversine_distance($lat1, $lng1, $lat2, $lng2);
     }
     
     /**

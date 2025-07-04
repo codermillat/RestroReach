@@ -1,0 +1,708 @@
+---
+applyTo: '**'
+---
+
+# Mobile PWA Development Rules - Delivery Agent Interface
+
+## 🎯 Context: Mobile-First Delivery Agent Experience
+This rule applies when developing the Progressive Web App interface for delivery agents, including touch-optimized UI, offline capabilities, and battery-efficient operations.
+
+## 📱 Mobile Design Principles
+
+### Touch-First Interface Standards
+```css
+/* Minimum touch target sizes for mobile agents */
+.rdm-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 12px;
+    margin: 8px;
+}
+
+/* Large, finger-friendly buttons */
+.rdm-primary-button {
+    font-size: 18px;
+    padding: 16px 24px;
+    border-radius: 8px;
+    border: none;
+    background: #2271b1;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.rdm-primary-button:hover,
+.rdm-primary-button:focus {
+    background: #135e96;
+}
+
+/* Mobile-optimized form inputs */
+.rdm-mobile-input {
+    font-size: 16px; /* Prevent zoom on iOS */
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    width: 100%;
+    box-sizing: border-box;
+}
+```
+
+### Responsive Breakpoints (Mobile-First)
+```css
+/* Mobile phones (default) */
+.rdm-container {
+    padding: 16px;
+    max-width: 100%;
+}
+
+/* Large phones / small tablets */
+@media (min-width: 480px) {
+    .rdm-container {
+        padding: 20px;
+    }
+}
+
+/* Tablets */
+@media (min-width: 768px) {
+    .rdm-container {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+}
+
+/* Desktop (agent dashboard on larger screens) */
+@media (min-width: 1024px) {
+    .rdm-container {
+        max-width: 800px;
+        padding: 32px;
+    }
+}
+```
+
+## 🔋 Battery Optimization Patterns
+
+### GPS Tracking Optimization
+```javascript
+class RDMBatteryEfficientGPS {
+    constructor() {
+        this.baseInterval = 45000; // 45 seconds default
+        this.currentInterval = this.baseInterval;
+        this.batteryLevel = null;
+        this.isCharging = false;
+        this.watchId = null;
+        
+        this.initBatteryMonitoring();
+    }
+    
+    async initBatteryMonitoring() {
+        if ('getBattery' in navigator) {
+            try {
+                const battery = await navigator.getBattery();
+                this.updateBatteryStatus(battery);
+                
+                // Monitor battery changes
+                battery.addEventListener('levelchange', () => this.updateBatteryStatus(battery));
+                battery.addEventListener('chargingchange', () => this.updateBatteryStatus(battery));
+            } catch (error) {
+                console.warn('Battery API not available');
+                // Fallback to conservative settings
+                this.currentInterval = 60000; // 1 minute fallback
+            }
+        }
+    }
+    
+    updateBatteryStatus(battery) {
+        this.batteryLevel = Math.round(battery.level * 100);
+        this.isCharging = battery.charging;
+        
+        // Adjust tracking frequency based on battery status
+        this.adjustTrackingFrequency();
+    }
+    
+    adjustTrackingFrequency() {
+        let newInterval;
+        
+        if (this.isCharging) {
+            newInterval = 30000; // 30 seconds when charging
+        } else if (this.batteryLevel > 50) {
+            newInterval = 45000; // 45 seconds - normal operation
+        } else if (this.batteryLevel > 25) {
+            newInterval = 60000; // 1 minute - battery conservation
+        } else if (this.batteryLevel > 15) {
+            newInterval = 120000; // 2 minutes - low battery
+        } else {
+            newInterval = 300000; // 5 minutes - critical battery
+        }
+        
+        if (newInterval !== this.currentInterval) {
+            this.currentInterval = newInterval;
+            this.restartTracking();
+            this.notifyBatteryOptimization(newInterval);
+        }
+    }
+    
+    startTracking() {
+        const options = {
+            enableHighAccuracy: false, // Battery optimization
+            timeout: 15000,
+            maximumAge: 60000 // Cache for 1 minute
+        };
+        
+        this.watchId = navigator.geolocation.watchPosition(
+            position => this.handleLocationUpdate(position),
+            error => this.handleLocationError(error),
+            options
+        );
+    }
+    
+    notifyBatteryOptimization(interval) {
+        const minutes = Math.round(interval / 60000);
+        this.showNotification(`Battery optimization: Location updates every ${minutes} minute(s)`, 'info');
+    }
+}
+```
+
+### Service Worker for Offline Capability
+```javascript
+// sw.js - Service Worker for offline functionality
+const CACHE_NAME = 'rdm-agent-v1.0.0';
+const OFFLINE_CACHE = 'rdm-offline-v1.0.0';
+
+// Critical resources to cache
+const CACHE_RESOURCES = [
+    '/wp-content/plugins/restaurant-delivery-manager/templates/mobile-agent/dashboard.php',
+    '/wp-content/plugins/restaurant-delivery-manager/assets/css/rr-mobile-agent.css',
+    '/wp-content/plugins/restaurant-delivery-manager/assets/js/rr-mobile-agent.js',
+    // Add other critical resources
+];
+
+// Install event - cache critical resources
+self.addEventListener('install', event => {
+    event.waitUntil(
+        caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(CACHE_RESOURCES))
+    );
+});
+
+// Fetch event - serve from cache when offline
+self.addEventListener('fetch', event => {
+    // Only handle GET requests
+    if (event.request.method !== 'GET') {
+        return;
+    }
+    
+    // Handle API requests differently
+    if (event.request.url.includes('admin-ajax.php')) {
+        event.respondWith(handleAPIRequest(event.request));
+        return;
+    }
+    
+    // Cache-first strategy for static resources
+    event.respondWith(
+        caches.match(event.request)
+            .then(response => {
+                if (response) {
+                    return response;
+                }
+                return fetch(event.request);
+            })
+            .catch(() => {
+                // Return offline page for navigation requests
+                if (event.request.mode === 'navigate') {
+                    return caches.match('/offline.html');
+                }
+            })
+    );
+});
+
+// Handle API requests with offline queue
+async function handleAPIRequest(request) {
+    try {
+        const response = await fetch(request);
+        
+        // Cache successful responses
+        if (response.ok) {
+            const cache = await caches.open(OFFLINE_CACHE);
+            cache.put(request, response.clone());
+        }
+        
+        return response;
+    } catch (error) {
+        // Try to serve from cache
+        const cachedResponse = await caches.match(request);
+        if (cachedResponse) {
+            return cachedResponse;
+        }
+        
+        // Queue failed requests for retry
+        queueFailedRequest(request);
+        
+        // Return offline indicator
+        return new Response(JSON.stringify({
+            success: false,
+            data: { message: 'Offline - request queued for retry' }
+        }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+}
+```
+
+## 📱 Mobile Agent Dashboard Pattern
+
+### Dashboard Layout Structure
+```php
+// Mobile agent dashboard template structure
+// File: templates/mobile-agent/dashboard.php
+
+<?php
+// Security check
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Capability check for delivery agents
+if (!current_user_can('rdm_view_own_orders')) {
+    wp_die(__('Access denied.', 'restaurant-delivery-manager'));
+}
+
+// Get current agent data
+$current_user_id = get_current_user_id();
+$agent = RDM_Database::instance()->get_agent_by_user_id($current_user_id);
+$assigned_orders = RDM_Database::instance()->get_agent_orders($agent->id, 'active');
+?>
+
+<!DOCTYPE html>
+<html <?php language_attributes(); ?>>
+<head>
+    <meta charset="<?php bloginfo('charset'); ?>">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#2271b1">
+    
+    <title><?php _e('Agent Dashboard', 'restaurant-delivery-manager'); ?> - <?php bloginfo('name'); ?></title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="<?php echo RDM_PLUGIN_URL; ?>manifest.json">
+    
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="<?php echo RDM_PLUGIN_URL; ?>assets/images/icon-180x180.png">
+    
+    <?php wp_head(); ?>
+</head>
+<body class="rdm-mobile-agent-dashboard">
+    <div class="rdm-mobile-container">
+        <!-- Status Bar -->
+        <div class="rdm-status-bar">
+            <div class="rdm-agent-status" id="rdm-agent-status">
+                <span class="rdm-status-indicator" data-status="<?php echo esc_attr($agent->availability ? 'online' : 'offline'); ?>"></span>
+                <span class="rdm-status-text"><?php echo $agent->availability ? __('Online', 'restaurant-delivery-manager') : __('Offline', 'restaurant-delivery-manager'); ?></span>
+            </div>
+            <div class="rdm-battery-indicator" id="rdm-battery-indicator">
+                <span class="rdm-battery-level">--</span>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <main class="rdm-main-content">
+            <!-- Order List -->
+            <section class="rdm-orders-section">
+                <h2 class="rdm-section-title"><?php _e('Your Orders', 'restaurant-delivery-manager'); ?></h2>
+                
+                <?php if (empty($assigned_orders)): ?>
+                    <div class="rdm-no-orders">
+                        <p><?php _e('No orders assigned yet.', 'restaurant-delivery-manager'); ?></p>
+                        <button class="rdm-refresh-button" id="rdm-refresh-orders">
+                            <?php _e('Refresh', 'restaurant-delivery-manager'); ?>
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <div class="rdm-orders-list" id="rdm-orders-list">
+                        <?php foreach ($assigned_orders as $order): ?>
+                            <?php include 'order-card-mobile.php'; ?>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </section>
+        </main>
+        
+        <!-- Bottom Navigation -->
+        <nav class="rdm-bottom-nav">
+            <button class="rdm-nav-item active" data-section="orders">
+                <span class="rdm-nav-icon">📋</span>
+                <span class="rdm-nav-label"><?php _e('Orders', 'restaurant-delivery-manager'); ?></span>
+            </button>
+            <button class="rdm-nav-item" data-section="location">
+                <span class="rdm-nav-icon">📍</span>
+                <span class="rdm-nav-label"><?php _e('Location', 'restaurant-delivery-manager'); ?></span>
+            </button>
+            <button class="rdm-nav-item" data-section="earnings">
+                <span class="rdm-nav-icon">💰</span>
+                <span class="rdm-nav-label"><?php _e('Earnings', 'restaurant-delivery-manager'); ?></span>
+            </button>
+            <button class="rdm-nav-item" data-section="profile">
+                <span class="rdm-nav-icon">👤</span>
+                <span class="rdm-nav-label"><?php _e('Profile', 'restaurant-delivery-manager'); ?></span>
+            </button>
+        </nav>
+    </div>
+    
+    <?php wp_footer(); ?>
+</body>
+</html>
+```
+
+## 💳 Mobile COD Interface Pattern
+
+### COD Collection Interface
+```javascript
+class RDMCODInterface {
+    constructor() {
+        this.currentOrder = null;
+        this.calculatorOpen = false;
+        
+        this.initializeCODInterface();
+    }
+    
+    initializeCODInterface() {
+        // Initialize calculator
+        this.setupCalculator();
+        
+        // Handle COD collection workflow
+        this.setupCODWorkflow();
+    }
+    
+    setupCalculator() {
+        const calculator = document.getElementById('rdm-cod-calculator');
+        if (!calculator) return;
+        
+        // Number input buttons
+        calculator.querySelectorAll('.rdm-calc-number').forEach(button => {
+            button.addEventListener('click', (e) => {
+                this.addNumber(e.target.textContent);
+            });
+        });
+        
+        // Clear button
+        calculator.querySelector('.rdm-calc-clear').addEventListener('click', () => {
+            this.clearCalculator();
+        });
+        
+        // Calculate change button
+        calculator.querySelector('.rdm-calc-change').addEventListener('click', () => {
+            this.calculateChange();
+        });
+    }
+    
+    openCODCollection(orderId, orderTotal) {
+        this.currentOrder = {
+            id: orderId,
+            total: parseFloat(orderTotal)
+        };
+        
+        // Show COD collection modal
+        const modal = document.getElementById('rdm-cod-modal');
+        modal.classList.add('active');
+        
+        // Update order total display
+        document.getElementById('rdm-order-total').textContent = 
+            this.formatCurrency(this.currentOrder.total);
+        
+        // Reset calculator
+        this.clearCalculator();
+        
+        // Focus on amount input
+        document.getElementById('rdm-amount-received').focus();
+    }
+    
+    calculateChange() {
+        const amountReceived = parseFloat(document.getElementById('rdm-amount-received').value) || 0;
+        const orderTotal = this.currentOrder.total;
+        
+        if (amountReceived < orderTotal) {
+            this.showError('Amount received is less than order total');
+            return;
+        }
+        
+        const change = amountReceived - orderTotal;
+        
+        // Display change amount
+        document.getElementById('rdm-change-amount').textContent = 
+            this.formatCurrency(change);
+        
+        // Show change display
+        document.getElementById('rdm-change-display').classList.add('visible');
+        
+        // Enable confirm button
+        document.getElementById('rdm-confirm-payment').disabled = false;
+    }
+    
+    async confirmPayment() {
+        const amountReceived = parseFloat(document.getElementById('rdm-amount-received').value);
+        const changeAmount = amountReceived - this.currentOrder.total;
+        
+        try {
+            const response = await this.submitCODCollection({
+                order_id: this.currentOrder.id,
+                amount_received: amountReceived,
+                change_amount: changeAmount
+            });
+            
+            if (response.success) {
+                this.showSuccess('Payment confirmed successfully');
+                this.closeCODModal();
+                this.updateOrderStatus(this.currentOrder.id, 'delivered');
+            } else {
+                this.showError(response.data.message || 'Payment confirmation failed');
+            }
+        } catch (error) {
+            this.showError('Network error. Payment will be queued for retry.');
+            this.queueOfflinePayment({
+                order_id: this.currentOrder.id,
+                amount_received: amountReceived,
+                change_amount: changeAmount
+            });
+        }
+    }
+    
+    formatCurrency(amount) {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+        }).format(amount);
+    }
+}
+```
+
+## 🔄 Offline Queue Management
+
+### Offline Data Synchronization
+```javascript
+class RDMOfflineManager {
+    constructor() {
+        this.queueKey = 'rdm_offline_queue';
+        this.isOnline = navigator.onLine;
+        
+        this.initializeOfflineHandling();
+    }
+    
+    initializeOfflineHandling() {
+        // Monitor connection status
+        window.addEventListener('online', () => {
+            this.isOnline = true;
+            this.processOfflineQueue();
+        });
+        
+        window.addEventListener('offline', () => {
+            this.isOnline = false;
+            this.showOfflineNotification();
+        });
+        
+        // Process queue on startup if online
+        if (this.isOnline) {
+            this.processOfflineQueue();
+        }
+    }
+    
+    queueAction(action, data) {
+        const queue = this.getOfflineQueue();
+        
+        queue.push({
+            id: this.generateId(),
+            action: action,
+            data: data,
+            timestamp: Date.now(),
+            retries: 0
+        });
+        
+        this.saveOfflineQueue(queue);
+        this.showQueuedNotification(action);
+    }
+    
+    async processOfflineQueue() {
+        const queue = this.getOfflineQueue();
+        if (queue.length === 0) return;
+        
+        const processedItems = [];
+        
+        for (const item of queue) {
+            try {
+                await this.processQueueItem(item);
+                processedItems.push(item.id);
+                this.showSyncSuccessNotification(item.action);
+            } catch (error) {
+                item.retries++;
+                
+                // Remove after 5 failed attempts
+                if (item.retries >= 5) {
+                    processedItems.push(item.id);
+                    this.showSyncFailureNotification(item.action);
+                }
+            }
+        }
+        
+        // Remove processed items from queue
+        if (processedItems.length > 0) {
+            const updatedQueue = queue.filter(item => !processedItems.includes(item.id));
+            this.saveOfflineQueue(updatedQueue);
+        }
+    }
+    
+    async processQueueItem(item) {
+        switch (item.action) {
+            case 'location_update':
+                return this.syncLocationUpdate(item.data);
+            case 'order_status':
+                return this.syncOrderStatus(item.data);
+            case 'cod_payment':
+                return this.syncCODPayment(item.data);
+            default:
+                throw new Error(`Unknown action: ${item.action}`);
+        }
+    }
+    
+    getOfflineQueue() {
+        const queue = localStorage.getItem(this.queueKey);
+        return queue ? JSON.parse(queue) : [];
+    }
+    
+    saveOfflineQueue(queue) {
+        localStorage.setItem(this.queueKey, JSON.stringify(queue));
+    }
+}
+```
+
+## 🎨 Mobile UI Components
+
+### Touch-Optimized Order Card
+```css
+.rdm-order-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    margin: 16px 0;
+    padding: 20px;
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.rdm-order-card:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.rdm-order-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.rdm-order-number {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1e1e1e;
+}
+
+.rdm-order-status {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.rdm-order-status.preparing {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.rdm-order-status.ready {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.rdm-order-status.out-for-delivery {
+    background: #d4edda;
+    color: #155724;
+}
+
+.rdm-customer-info {
+    display: flex;
+    align-items: center;
+    margin: 12px 0;
+}
+
+.rdm-customer-icon {
+    width: 24px;
+    height: 24px;
+    margin-right: 12px;
+    color: #666;
+}
+
+.rdm-order-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.rdm-action-button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.rdm-action-primary {
+    background: #2271b1;
+    color: white;
+}
+
+.rdm-action-primary:hover {
+    background: #135e96;
+}
+
+.rdm-action-secondary {
+    background: #f0f0f1;
+    color: #1e1e1e;
+}
+
+.rdm-action-secondary:hover {
+    background: #e0e0e1;
+}
+```
+
+## ⚠️ Common Mobile Development Pitfalls
+
+1. **Small Touch Targets**: Always use minimum 44px touch targets
+2. **iOS Zoom Prevention**: Use `font-size: 16px` minimum for inputs
+3. **Battery Drain**: Implement proper GPS tracking intervals
+4. **Offline Handling**: Always queue failed requests for retry
+5. **Viewport Issues**: Use proper viewport meta tag
+6. **Performance**: Minimize JavaScript on low-end devices
+
+## 💡 Example Implementation Prompts
+
+**For Push Notifications:**
+```
+"Add push notification support for order assignments following the established 
+PWA patterns and offline queue management system"
+```
+
+**For Photo Capture:**
+```
+"Implement delivery photo confirmation using device camera with offline storage
+following the mobile-first design patterns and touch optimization"
+```
+
+**For Delivery Tracking:**
+```
+"Add real-time delivery tracking for customers using the existing GPS tracking
+infrastructure with battery optimization and offline capability"
+``` 
