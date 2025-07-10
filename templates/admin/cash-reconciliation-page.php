@@ -115,15 +115,23 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
                             <th><?php esc_html_e('Collections', 'restaurant-delivery-manager'); ?></th>
                             <th><?php esc_html_e('Change Given', 'restaurant-delivery-manager'); ?></th>
                             <th><?php esc_html_e('Net Amount', 'restaurant-delivery-manager'); ?></th>
+                            <th><?php esc_html_e('Variance', 'restaurant-delivery-manager'); ?></th>
                             <th><?php esc_html_e('Status', 'restaurant-delivery-manager'); ?></th>
                             <th><?php esc_html_e('Actions', 'restaurant-delivery-manager'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($pending_reconciliations as $reconciliation): ?>
-                            <tr>
+                        <?php foreach ($pending_reconciliations as $reconciliation): 
+                            $variance = abs((float) ($reconciliation->variance ?? 0));
+                            $is_high_discrepancy = $variance > 50;
+                            $row_class = $is_high_discrepancy ? 'rdm-high-discrepancy' : '';
+                        ?>
+                            <tr class="<?php echo esc_attr($row_class); ?>">
                                 <td>
                                     <strong><?php echo esc_html($reconciliation->agent_name); ?></strong>
+                                    <?php if ($is_high_discrepancy): ?>
+                                        <span class="rdm-discrepancy-flag" title="<?php esc_attr_e('High discrepancy detected', 'restaurant-delivery-manager'); ?>">⚠️</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php echo esc_html(wp_date(get_option('date_format'), strtotime($reconciliation->reconciliation_date))); ?>
@@ -136,6 +144,15 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
                                 </td>
                                 <td>
                                     <strong><?php echo wc_price($reconciliation->closing_balance); ?></strong>
+                                </td>
+                                <td>
+                                    <?php 
+                                    $variance_amount = $reconciliation->variance ?? 0;
+                                    $variance_class = $variance_amount > 0 ? 'text-success' : ($variance_amount < 0 ? 'text-danger' : '');
+                                    ?>
+                                    <span class="<?php echo esc_attr($variance_class); ?>">
+                                        <?php echo wc_price($variance_amount); ?>
+                                    </span>
                                 </td>
                                 <td>
                                     <?php
@@ -219,6 +236,9 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
                         </button>
                         <button type="button" class="button" onclick="window.print()">
                             <?php esc_html_e('Print', 'restaurant-delivery-manager'); ?>
+                        </button>
+                        <button type="button" class="button button-secondary" id="export-csv-button">
+                            <?php esc_html_e('Export CSV', 'restaurant-delivery-manager'); ?>
                         </button>
                     </div>
                 </div>
@@ -364,4 +384,195 @@ jQuery(document).ready(function($) {
     background: #d1ecf1;
     color: #0c5460;
 }
-</style> 
+
+/* High discrepancy styling */
+.rdm-high-discrepancy {
+    background-color: #ffeaa7 !important;
+    border-left: 4px solid #e17055 !important;
+}
+
+.rdm-discrepancy-flag {
+    font-size: 16px;
+    margin-left: 8px;
+    cursor: help;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+</style>
+
+<script>
+jQuery(document).ready(function($) {
+    // CSV Export functionality
+    $('#export-csv-button').on('click', function(e) {
+        e.preventDefault();
+        
+        // Get current filter values
+        const dateFrom = $('#report-date-from').val();
+        const dateTo = $('#report-date-to').val();
+        const agentId = $('#report-agent').val();
+        
+        // Build export URL
+        const exportUrl = new URL(ajaxurl.replace('/admin-ajax.php', '/admin-post.php'));
+        exportUrl.searchParams.set('action', 'rdm_export_reconciliation_csv');
+        exportUrl.searchParams.set('date_from', dateFrom);
+        exportUrl.searchParams.set('date_to', dateTo);
+        if (agentId) {
+            exportUrl.searchParams.set('agent_id', agentId);
+        }
+        exportUrl.searchParams.set('nonce', '<?php echo wp_create_nonce('rdm_export_csv'); ?>');
+        
+        // Show loading state
+        const $button = $(this);
+        const originalText = $button.text();
+        $button.prop('disabled', true).text('<?php esc_attr_e('Exporting...', 'restaurant-delivery-manager'); ?>');
+        
+        // Create hidden iframe for download
+        const iframe = $('<iframe>')
+            .attr('src', exportUrl.toString())
+            .css({
+                position: 'absolute',
+                left: '-9999px',
+                width: '1px',
+                height: '1px'
+            })
+            .appendTo('body');
+        
+        // Reset button after download
+        setTimeout(function() {
+            $button.prop('disabled', false).text(originalText);
+            iframe.remove();
+        }, 2000);
+    });
+    
+    // Form validation for report generation
+    $('#reconciliation-report-form').on('submit', function(e) {
+        const dateFrom = $('#report-date-from').val();
+        const dateTo = $('#report-date-to').val();
+        
+        if (dateFrom && dateTo && new Date(dateFrom) > new Date(dateTo)) {
+            e.preventDefault();
+            alert('<?php esc_attr_e('Start date cannot be after end date.', 'restaurant-delivery-manager'); ?>');
+            return false;
+        }
+    });
+});
+</script>
+
+<!-- Admin Verification Modal -->
+<div id="rdm-admin-verify-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 30px; border-radius: 8px; max-width: 500px; width: 90%;">
+        <h3><?php esc_html_e('Verify Cash Reconciliation', 'restaurant-delivery-manager'); ?></h3>
+        
+        <div id="rdm-verify-details" style="margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 4px;">
+            <!-- Details will be populated by JavaScript -->
+        </div>
+        
+        <div style="margin: 20px 0;">
+            <label for="rdm-admin-notes" style="display: block; margin-bottom: 5px; font-weight: 500;">
+                <?php esc_html_e('Admin Notes (Optional):', 'restaurant-delivery-manager'); ?>
+            </label>
+            <textarea id="rdm-admin-notes" 
+                      style="width: 100%; height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"
+                      placeholder="<?php esc_attr_e('Add any notes about this verification...', 'restaurant-delivery-manager'); ?>"></textarea>
+        </div>
+        
+        <div style="text-align: right; margin-top: 20px;">
+            <button type="button" id="rdm-cancel-verify" class="button" style="margin-right: 10px;">
+                <?php esc_html_e('Cancel', 'restaurant-delivery-manager'); ?>
+            </button>
+            <button type="button" id="rdm-approve-reconciliation" class="button button-primary" style="margin-right: 10px;">
+                <?php esc_html_e('Approve', 'restaurant-delivery-manager'); ?>
+            </button>
+            <button type="button" id="rdm-reject-reconciliation" class="button" style="background: #dc3545; color: white; border-color: #dc3545;">
+                <?php esc_html_e('Reject', 'restaurant-delivery-manager'); ?>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+jQuery(document).ready(function($) {
+    // Enhanced verify reconciliation with admin notes
+    $('.rdm-verify-reconciliation-btn').on('click', function() {
+        const $button = $(this);
+        const reconciliationId = $button.data('reconciliation-id');
+        
+        // Get reconciliation details
+        $.post(ajaxurl, {
+            action: 'rdm_get_reconciliation_details',
+            reconciliation_id: reconciliationId,
+            nonce: '<?php echo wp_create_nonce('rdm_admin_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                const data = response.data;
+                $('#rdm-verify-details').html(`
+                    <div><strong><?php esc_html_e('Agent:', 'restaurant-delivery-manager'); ?></strong> ${data.agent_name}</div>
+                    <div><strong><?php esc_html_e('Date:', 'restaurant-delivery-manager'); ?></strong> ${data.date}</div>
+                    <div><strong><?php esc_html_e('Collections:', 'restaurant-delivery-manager'); ?></strong> ${data.collections}</div>
+                    <div><strong><?php esc_html_e('Variance:', 'restaurant-delivery-manager'); ?></strong> ${data.variance}</div>
+                    ${data.agent_notes ? `<div><strong><?php esc_html_e('Agent Notes:', 'restaurant-delivery-manager'); ?></strong> ${data.agent_notes}</div>` : ''}
+                `);
+                $('#rdm-admin-verify-modal').show();
+                $('#rdm-admin-verify-modal').data('reconciliation-id', reconciliationId);
+            }
+        });
+    });
+    
+    // Cancel verification
+    $('#rdm-cancel-verify').on('click', function() {
+        $('#rdm-admin-verify-modal').hide();
+        $('#rdm-admin-notes').val('');
+    });
+    
+    // Approve reconciliation
+    $('#rdm-approve-reconciliation').on('click', function() {
+        const reconciliationId = $('#rdm-admin-verify-modal').data('reconciliation-id');
+        const adminNotes = $('#rdm-admin-notes').val();
+        
+        $.post(ajaxurl, {
+            action: 'rdm_verify_reconciliation',
+            reconciliation_id: reconciliationId,
+            admin_notes: adminNotes,
+            verify_action: 'approve',
+            nonce: '<?php echo wp_create_nonce('rdm_admin_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                location.reload();
+            } else {
+                alert(response.data.message || 'Error processing verification');
+            }
+        });
+    });
+    
+    // Reject reconciliation
+    $('#rdm-reject-reconciliation').on('click', function() {
+        const reconciliationId = $('#rdm-admin-verify-modal').data('reconciliation-id');
+        const adminNotes = $('#rdm-admin-notes').val();
+        
+        if (!adminNotes.trim()) {
+            alert('<?php esc_js_e('Please provide a reason for rejection in the admin notes.', 'restaurant-delivery-manager'); ?>');
+            return;
+        }
+        
+        $.post(ajaxurl, {
+            action: 'rdm_verify_reconciliation',
+            reconciliation_id: reconciliationId,
+            admin_notes: adminNotes,
+            verify_action: 'reject',
+            nonce: '<?php echo wp_create_nonce('rdm_admin_nonce'); ?>'
+        }, function(response) {
+            if (response.success) {
+                location.reload();
+            } else {
+                alert(response.data.message || 'Error processing verification');
+            }
+        });
+    });
+});
+</script> 

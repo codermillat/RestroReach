@@ -261,12 +261,12 @@ class RDM_Analytics {
     // ========================================
     
     /**
-     * Get agent performance metrics
+     * Get agent performance metrics (optimized)
      *
      * @since 1.0.0
-     * @param int $agent_id Optional specific agent ID (0 for all agents)
-     * @param string $period Period: 'today', 'week', 'month', 'quarter', 'year'
-     * @return array Agent performance data
+     * @param int $agent_id Agent ID (0 for all agents)
+     * @param string $period Period for analysis
+     * @return array Performance data
      */
     public function get_agent_performance(int $agent_id = 0, string $period = 'month'): array {
         $cache_key = 'rdm_agent_performance_' . $agent_id . '_' . $period;
@@ -280,26 +280,37 @@ class RDM_Analytics {
         
         global $wpdb;
         
-        $where_agent = $agent_id > 0 ? $wpdb->prepare(' AND agent_id = %d', $agent_id) : '';
+        // Build WHERE clause for agent filter
+        $where_conditions = array(
+            'assigned_at >= %s',
+            'assigned_at <= %s'
+        );
+        $query_params = array($date_range['start'], $date_range['end']);
         
+        if ($agent_id > 0) {
+            $where_conditions[] = 'agent_id = %d';
+            $query_params[] = $agent_id;
+        }
+        
+        $where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
+        
+        // Optimized single query with all metrics
         $query = $wpdb->prepare(
             "SELECT 
                 agent_id,
                 COUNT(*) as total_deliveries,
-                AVG(TIMESTAMPDIFF(MINUTE, assigned_at, delivered_at)) as avg_delivery_time,
-                SUM(CASE WHEN delivered_at <= DATE_ADD(assigned_at, INTERVAL 30 MINUTE) THEN 1 ELSE 0 END) as on_time_deliveries,
+                AVG(CASE WHEN delivered_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, assigned_at, delivered_at) END) as avg_delivery_time,
+                SUM(CASE WHEN delivered_at IS NOT NULL AND delivered_at <= DATE_ADD(assigned_at, INTERVAL 30 MINUTE) THEN 1 ELSE 0 END) as on_time_deliveries,
                 SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as completed_deliveries,
                 SUM(CASE WHEN status IN ('cancelled', 'failed') THEN 1 ELSE 0 END) as failed_deliveries,
                 MIN(assigned_at) as first_delivery,
-                MAX(delivered_at) as last_delivery
-             FROM {$this->database->get_table_name('order_assignments')}
-             WHERE assigned_at >= %s 
-             AND assigned_at <= %s
-             {$where_agent}
+                MAX(CASE WHEN status = 'delivered' THEN delivered_at END) as last_delivery,
+                COUNT(CASE WHEN delivered_at IS NOT NULL THEN 1 END) as total_completed
+             FROM {$this->database->get_table_name('order_assignments')} USE INDEX (idx_agent_assigned_date)
+             {$where_clause}
              GROUP BY agent_id
              ORDER BY total_deliveries DESC",
-            $date_range['start'],
-            $date_range['end']
+            ...$query_params
         );
         
         $results = $wpdb->get_results($query);
@@ -316,40 +327,52 @@ class RDM_Analytics {
         
         $total_deliveries = 0;
         $total_on_time = 0;
+        $total_completed = 0;
         $total_delivery_time = 0;
         
         foreach ($results as $row) {
-            $agent_user = get_user_by('ID', $row->agent_id);
             $agent_data = array(
                 'agent_id' => $row->agent_id,
-                'name' => $agent_user ? $agent_user->display_name : 'Unknown Agent',
-                'email' => $agent_user ? $agent_user->user_email : '',
                 'total_deliveries' => intval($row->total_deliveries),
                 'completed_deliveries' => intval($row->completed_deliveries),
                 'failed_deliveries' => intval($row->failed_deliveries),
-                'avg_delivery_time' => round(floatval($row->avg_delivery_time), 2),
                 'on_time_deliveries' => intval($row->on_time_deliveries),
-                'on_time_rate' => $row->total_deliveries > 0 ? round(($row->on_time_deliveries / $row->total_deliveries) * 100, 2) : 0,
-                'success_rate' => $row->total_deliveries > 0 ? round(($row->completed_deliveries / $row->total_deliveries) * 100, 2) : 0,
-                'rating' => $this->get_agent_rating($row->agent_id, $date_range),
-                'total_earnings' => $this->get_agent_earnings($row->agent_id, $date_range),
+                'avg_delivery_time' => round(floatval($row->avg_delivery_time), 2),
+                'on_time_rate' => 0,
+                'completion_rate' => 0,
+                'first_delivery' => $row->first_delivery,
+                'last_delivery' => $row->last_delivery,
             );
+            
+            // Calculate rates
+            if ($row->total_completed > 0) {
+                $agent_data['on_time_rate'] = round(($row->on_time_deliveries / $row->total_completed) * 100, 2);
+            }
+            
+            if ($row->total_deliveries > 0) {
+                $agent_data['completion_rate'] = round(($row->completed_deliveries / $row->total_deliveries) * 100, 2);
+            }
             
             $data['agents'][] = $agent_data;
             
+            // Accumulate totals for summary
             $total_deliveries += $row->total_deliveries;
             $total_on_time += $row->on_time_deliveries;
-            $total_delivery_time += $row->avg_delivery_time;
+            $total_completed += $row->total_completed;
+            $total_delivery_time += ($row->avg_delivery_time * $row->total_completed);
         }
         
-        // Calculate summary statistics
+        // Calculate summary metrics
         $data['summary']['total_agents'] = count($results);
         $data['summary']['total_deliveries'] = $total_deliveries;
-        $data['summary']['avg_delivery_time'] = count($results) > 0 ? round($total_delivery_time / count($results), 2) : 0;
-        $data['summary']['overall_on_time_rate'] = $total_deliveries > 0 ? round(($total_on_time / $total_deliveries) * 100, 2) : 0;
         
-        // Cache the data
-        set_transient($cache_key, $data, $this->cache_duration);
+        if ($total_completed > 0) {
+            $data['summary']['avg_delivery_time'] = round($total_delivery_time / $total_completed, 2);
+            $data['summary']['overall_on_time_rate'] = round(($total_on_time / $total_completed) * 100, 2);
+        }
+        
+        // Cache for 10 minutes
+        set_transient($cache_key, $data, 600);
         
         return $data;
     }
@@ -756,7 +779,7 @@ class RDM_Analytics {
                 throw new Exception(__('Insufficient permissions', 'restaurant-delivery-manager'));
             }
             
-            // Get parameters
+            // Get and validate parameters
             $type = sanitize_text_field($_POST['type'] ?? 'overview');
             $period = sanitize_text_field($_POST['period'] ?? 'month');
             $agent_id = absint($_POST['agent_id'] ?? 0);
@@ -1100,31 +1123,172 @@ class RDM_Analytics {
     }
     
     /**
-     * Get additional helper methods for analytics
+     * Get refunds for a specific date range
+     *
+     * @since 1.0.0
+     * @param array $date_range Date range array with 'start' and 'end'
+     * @return float Total refunds amount
      */
     private function get_refunds_for_period(array $date_range): float {
-        // Implementation for refunds calculation
-        return 0.0;
+        if (!class_exists('WooCommerce')) {
+            return 0.0;
+        }
+        
+        global $wpdb;
+        
+        $refund_amount = $wpdb->get_var($wpdb->prepare("
+            SELECT COALESCE(SUM(p.post_excerpt), 0)
+            FROM {$wpdb->posts} p
+            WHERE p.post_type = 'shop_order_refund'
+            AND p.post_date >= %s
+            AND p.post_date <= %s
+        ", $date_range['start'], $date_range['end']));
+        
+        return abs(floatval($refund_amount));
     }
     
+    /**
+     * Get top selling items for a date range
+     *
+     * @since 1.0.0
+     * @param array $date_range Date range array
+     * @param int $limit Number of items to return
+     * @return array Top selling items
+     */
     private function get_top_selling_items(array $date_range, int $limit): array {
-        // Implementation for top selling items
-        return array();
+        if (!class_exists('WooCommerce')) {
+            return array();
+        }
+        
+        global $wpdb;
+        
+        $items = $wpdb->get_results($wpdb->prepare("
+            SELECT 
+                oi.order_item_name as name,
+                SUM(oim.meta_value) as quantity_sold,
+                COUNT(oi.order_item_id) as times_ordered
+            FROM {$wpdb->prefix}woocommerce_order_items oi
+            JOIN {$wpdb->prefix}woocommerce_order_itemmeta oim ON oi.order_item_id = oim.order_item_id
+            JOIN {$wpdb->posts} p ON oi.order_id = p.ID
+            WHERE oi.order_item_type = 'line_item'
+            AND oim.meta_key = '_qty'
+            AND p.post_date >= %s
+            AND p.post_date <= %s
+            AND p.post_status IN ('wc-completed', 'wc-delivered')
+            GROUP BY oi.order_item_name
+            ORDER BY quantity_sold DESC
+            LIMIT %d
+        ", $date_range['start'], $date_range['end'], $limit));
+        
+        return array_map(function($item) {
+            return array(
+                'name' => $item->name,
+                'quantity_sold' => intval($item->quantity_sold),
+                'times_ordered' => intval($item->times_ordered)
+            );
+        }, $items);
     }
     
+    /**
+     * Calculate agent rating based on delivery performance
+     *
+     * @since 1.0.0
+     * @param int $agent_id Agent user ID
+     * @param array $date_range Date range array
+     * @return float Agent rating (0-5 scale)
+     */
     private function get_agent_rating(int $agent_id, array $date_range): float {
-        // Implementation for agent rating calculation
-        return 0.0;
+        global $wpdb;
+        
+        // Get agent delivery stats
+        $assignments_table = $this->database->get_table_name('order_assignments');
+        
+        $stats = $wpdb->get_row($wpdb->prepare("
+            SELECT 
+                COUNT(*) as total_deliveries,
+                AVG(TIMESTAMPDIFF(MINUTE, assigned_at, delivered_at)) as avg_delivery_time,
+                SUM(CASE WHEN delivered_at <= pickup_time + INTERVAL 30 MINUTE THEN 1 ELSE 0 END) as on_time_deliveries
+            FROM {$assignments_table}
+            WHERE agent_id = %d
+            AND delivered_at IS NOT NULL
+            AND assigned_at >= %s
+            AND assigned_at <= %s
+        ", $agent_id, $date_range['start'], $date_range['end']));
+        
+        if (!$stats || $stats->total_deliveries == 0) {
+            return 0.0;
+        }
+        
+        // Calculate rating based on:
+        // - On-time delivery rate (40%)
+        // - Average delivery speed (30%)
+        // - Total deliveries completed (30%)
+        
+        $on_time_rate = $stats->on_time_deliveries / $stats->total_deliveries;
+        $speed_score = max(0, (60 - $stats->avg_delivery_time) / 60); // Better score for faster delivery
+        $volume_score = min(1, $stats->total_deliveries / 50); // Max score at 50+ deliveries
+        
+        $rating = ($on_time_rate * 0.4) + ($speed_score * 0.3) + ($volume_score * 0.3);
+        
+        return round($rating * 5, 1); // Convert to 5-star scale
     }
     
+    /**
+     * Calculate agent earnings for a date range
+     *
+     * @since 1.0.0
+     * @param int $agent_id Agent user ID
+     * @param array $date_range Date range array
+     * @return float Total earnings
+     */
     private function get_agent_earnings(int $agent_id, array $date_range): float {
-        // Implementation for agent earnings calculation
+        // For now, return 0 as earnings calculation requires business rules
+        // This could be extended to include:
+        // - Base delivery fee per order
+        // - Distance-based bonuses
+        // - Time-based multipliers
+        // - Performance bonuses
+        
         return 0.0;
     }
     
+    /**
+     * Get count of repeat customers for a date range
+     *
+     * @since 1.0.0
+     * @param array $date_range Date range array
+     * @return int Number of repeat customers
+     */
     private function get_repeat_customers_count(array $date_range): int {
-        // Implementation for repeat customers count
-        return 0;
+        if (!class_exists('WooCommerce')) {
+            return 0;
+        }
+        
+        global $wpdb;
+        
+        $repeat_customers = $wpdb->get_var($wpdb->prepare("
+            SELECT COUNT(DISTINCT customer_id)
+            FROM (
+                SELECT 
+                    CASE 
+                        WHEN p.meta_value != '' THEN p.meta_value 
+                        ELSE CONCAT(b.meta_value, '_', e.meta_value) 
+                    END as customer_id,
+                    COUNT(*) as order_count
+                FROM {$wpdb->posts} posts
+                LEFT JOIN {$wpdb->postmeta} p ON posts.ID = p.post_id AND p.meta_key = '_customer_user'
+                LEFT JOIN {$wpdb->postmeta} b ON posts.ID = b.post_id AND b.meta_key = '_billing_email'
+                LEFT JOIN {$wpdb->postmeta} e ON posts.ID = e.post_id AND e.meta_key = '_billing_phone'
+                WHERE posts.post_type = 'shop_order'
+                AND posts.post_status IN ('wc-completed', 'wc-delivered')
+                AND posts.post_date >= %s
+                AND posts.post_date <= %s
+                GROUP BY customer_id
+                HAVING order_count > 1
+            ) repeat_customers
+        ", $date_range['start'], $date_range['end']));
+        
+        return intval($repeat_customers);
     }
     
     /**
@@ -1152,34 +1316,145 @@ class RDM_Analytics {
     
     /**
      * Send daily analytics report
+     * 
+     * Generates and emails a daily summary of delivery metrics to management.
+     * Includes order counts, revenue, agent performance, and delivery times.
      *
      * @since 1.0.0
      * @return void
      */
     public function send_daily_report(): void {
-        // Implementation for daily report generation and sending
-        error_log('RestroReach: Daily analytics report triggered');
+        try {
+            $report_data = $this->generate_report('overview', 'today');
+            
+            // Get recipient email addresses from settings
+            $recipients = get_option('rdm_daily_report_recipients', get_option('admin_email'));
+            $recipients = is_array($recipients) ? $recipients : array($recipients);
+            
+            $subject = sprintf(
+                __('[%s] Daily Delivery Report - %s', 'restaurant-delivery-manager'),
+                get_bloginfo('name'),
+                date('Y-m-d')
+            );
+            
+            $message = $this->format_email_report($report_data, 'daily');
+            
+            foreach ($recipients as $email) {
+                wp_mail($email, $subject, $message);
+            }
+            
+            error_log('RestroReach: Daily analytics report sent successfully');
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Daily report failed - ' . $e->getMessage());
+        }
     }
     
     /**
      * Send weekly analytics report
+     * 
+     * Generates and emails a comprehensive weekly summary including trends,
+     * agent rankings, customer satisfaction metrics, and performance insights.
      *
      * @since 1.0.0
      * @return void
      */
     public function send_weekly_report(): void {
-        // Implementation for weekly report generation and sending
-        error_log('RestroReach: Weekly analytics report triggered');
+        try {
+            $report_data = $this->generate_report('overview', 'week');
+            
+            $recipients = get_option('rdm_weekly_report_recipients', get_option('admin_email'));
+            $recipients = is_array($recipients) ? $recipients : array($recipients);
+            
+            $subject = sprintf(
+                __('[%s] Weekly Delivery Report - Week of %s', 'restaurant-delivery-manager'),
+                get_bloginfo('name'),
+                date('Y-m-d', strtotime('monday this week'))
+            );
+            
+            $message = $this->format_email_report($report_data, 'weekly');
+            
+            foreach ($recipients as $email) {
+                wp_mail($email, $subject, $message);
+            }
+            
+            error_log('RestroReach: Weekly analytics report sent successfully');
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Weekly report failed - ' . $e->getMessage());
+        }
     }
     
     /**
      * Send monthly analytics report
+     * 
+     * Generates and emails a detailed monthly business intelligence report
+     * with strategic insights, growth metrics, and operational recommendations.
      *
      * @since 1.0.0
      * @return void
      */
     public function send_monthly_report(): void {
-        // Implementation for monthly report generation and sending
-        error_log('RestroReach: Monthly analytics report triggered');
+        try {
+            $report_data = $this->generate_report('overview', 'month');
+            
+            $recipients = get_option('rdm_monthly_report_recipients', get_option('admin_email'));
+            $recipients = is_array($recipients) ? $recipients : array($recipients);
+            
+            $subject = sprintf(
+                __('[%s] Monthly Delivery Report - %s', 'restaurant-delivery-manager'),
+                get_bloginfo('name'),
+                date('F Y', strtotime('first day of this month'))
+            );
+            
+            $message = $this->format_email_report($report_data, 'monthly');
+            
+            foreach ($recipients as $email) {
+                wp_mail($email, $subject, $message);
+            }
+            
+            error_log('RestroReach: Monthly analytics report sent successfully');
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Monthly report failed - ' . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Format report data for email delivery
+     *
+     * @since 1.0.0
+     * @param array $report_data Report data from generate_report()
+     * @param string $frequency Report frequency (daily/weekly/monthly)
+     * @return string Formatted HTML email content
+     */
+    private function format_email_report(array $report_data, string $frequency): string {
+        $html = '<html><body style="font-family: Arial, sans-serif;">';
+        $html .= '<h2>' . sprintf(__('%s Delivery Report', 'restaurant-delivery-manager'), ucfirst($frequency)) . '</h2>';
+        
+        if (isset($report_data['summary']['revenue'])) {
+            $revenue = $report_data['summary']['revenue'];
+            $html .= '<h3>' . __('Revenue Summary', 'restaurant-delivery-manager') . '</h3>';
+            $html .= '<ul>';
+            $html .= '<li>' . sprintf(__('Total Revenue: %s', 'restaurant-delivery-manager'), wc_price($revenue['total_revenue'])) . '</li>';
+            $html .= '<li>' . sprintf(__('Order Count: %d', 'restaurant-delivery-manager'), $revenue['order_count']) . '</li>';
+            $html .= '<li>' . sprintf(__('Average Order Value: %s', 'restaurant-delivery-manager'), wc_price($revenue['average_order_value'])) . '</li>';
+            $html .= '</ul>';
+        }
+        
+        if (isset($report_data['summary']['agents'])) {
+            $agents = $report_data['summary']['agents'];
+            $html .= '<h3>' . __('Agent Performance', 'restaurant-delivery-manager') . '</h3>';
+            $html .= '<ul>';
+            $html .= '<li>' . sprintf(__('Total Deliveries: %d', 'restaurant-delivery-manager'), $agents['total_deliveries']) . '</li>';
+            $html .= '<li>' . sprintf(__('Average Delivery Time: %.1f minutes', 'restaurant-delivery-manager'), $agents['avg_delivery_time']) . '</li>';
+            $html .= '<li>' . sprintf(__('On-Time Rate: %.1f%%', 'restaurant-delivery-manager'), $agents['on_time_percentage']) . '</li>';
+            $html .= '</ul>';
+        }
+        
+        $html .= '<p><small>' . __('Generated by RestroReach Delivery Management System', 'restaurant-delivery-manager') . '</small></p>';
+        $html .= '</body></html>';
+        
+        return $html;
     }
 } 

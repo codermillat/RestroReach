@@ -644,323 +644,420 @@
             return;
         }
 
+        // Set modal data
         const $modal = $('#rrm-cod-modal');
-        const $total = $('#rrm-payment-total');
-        const $collectedInput = $('#rrm-collected-amount');
-        const $changeSection = $('#rrm-change-section');
-        const $changeAmount = $('#rrm-change-amount');
-        const $confirmBtn = $('#rrm-confirm-payment');
-
-        $total.text(order.formatted_total || formatCurrency(order.total));
-        $collectedInput.val('').trigger('input');
-        $changeSection.hide();
-        $('#rrm-payment-notes').val('');
+        $modal.data('order-id', orderId);
         
-        $modal.data('order-id', orderId).data('order-total', order.total).show();
-        $collectedInput.focus();
+        // Update order information
+        $('#rrm-cod-order-number').text(order.order_number || `#${order.id}`);
+        $('#rrm-cod-order-total').text(formatCurrency(parseFloat(order.total)));
+        
+        // Reset form
+        clearAmount();
+        $('#rrm-payment-notes').val('');
+        $('#rrm-change-display').hide();
+        $('#rrm-confirm-payment').prop('disabled', true);
+        
+        // Show modal
+        $modal.addClass('active');
+        
+        // Focus on amount input after animation
+        setTimeout(() => {
+            $('#rrm-collected-amount').focus();
+        }, 300);
+    }
 
-        // Real-time change calculation
-        $collectedInput.off('input.cod').on('input.cod', function() {
-            const collected = parseFloat($(this).val()) || 0;
-            const total = parseFloat($modal.data('order-total'));
-            
-            if (collected > 0) {
-                calculateChange(total, collected);
-            } else {
-                $changeSection.hide();
-                $confirmBtn.prop('disabled', true);
+    /**
+     * Close COD modal
+     */
+    function closeCODModal() {
+        $('#rrm-cod-modal').removeClass('active');
+    }
+
+    /**
+     * Add number to amount input
+     */
+    function addToAmount(value) {
+        const $input = $('#rrm-collected-amount');
+        const currentValue = $input.val();
+        let newValue = currentValue + value;
+        
+        // Validate decimal places
+        if (newValue.includes('.')) {
+            const parts = newValue.split('.');
+            if (parts[1] && parts[1].length > 2) {
+                return; // Prevent more than 2 decimal places
             }
-        });
+        }
+        
+        $input.val(newValue).trigger('input');
+    }
+
+    /**
+     * Add decimal point to amount
+     */
+    function addDecimalToAmount() {
+        const $input = $('#rrm-collected-amount');
+        const currentValue = $input.val();
+        
+        if (!currentValue.includes('.')) {
+            $input.val(currentValue + '.').trigger('input');
+        }
+    }
+
+    /**
+     * Clear amount input
+     */
+    function clearAmount() {
+        $('#rrm-collected-amount').val('').trigger('input');
+    }
+
+    /**
+     * Set specific amount
+     */
+    function setAmount(amount) {
+        $('#rrm-collected-amount').val(amount.toFixed(2)).trigger('input');
+    }
+
+    /**
+     * Set exact order amount
+     */
+    function setExactAmount() {
+        const orderTotal = parseFloat($('#rrm-cod-order-total').text().replace('$', ''));
+        setAmount(orderTotal);
     }
 
     /**
      * Calculate and display change
      */
-    function calculateChange(orderTotal, collectedAmount) {
-        $.ajax({
-            url: rrmAgent.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'rdm_calculate_change',
-                nonce: rrmAgent.nonce,
-                order_total: orderTotal,
-                collected_amount: collectedAmount
-            },
-            success: function(response) {
-                if (response.success) {
-                    const data = response.data;
-                    const $changeSection = $('#rrm-change-section');
-                    const $changeAmount = $('#rrm-change-amount');
-                    const $confirmBtn = $('#rrm-confirm-payment');
-                    
-                    if (data.sufficient_payment) {
-                        $changeAmount.text(data.formatted_change);
-                        $changeSection.show();
-                        $confirmBtn.prop('disabled', false);
-                    } else {
-                        $changeSection.hide();
-                        $confirmBtn.prop('disabled', true);
-                    }
-                }
+    function calculateChange() {
+        const $collectedInput = $('#rrm-collected-amount');
+        const $changeDisplay = $('#rrm-change-display');
+        const $changeAmount = $('#rrm-change-amount');
+        const $confirmBtn = $('#rrm-confirm-payment');
+        
+        const collected = parseFloat($collectedInput.val()) || 0;
+        const orderTotal = parseFloat($('#rrm-cod-order-total').text().replace('$', ''));
+        
+        if (collected >= orderTotal && collected > 0) {
+            const change = collected - orderTotal;
+            $changeAmount.text(formatCurrency(change));
+            $changeDisplay.show();
+            $confirmBtn.prop('disabled', false);
+            
+            // Update display colors
+            if (change > 0) {
+                $changeAmount.addClass('rrm-change');
+            } else {
+                $changeAmount.removeClass('rrm-change');
             }
-        });
+        } else {
+            $changeDisplay.hide();
+            $confirmBtn.prop('disabled', true);
+        }
     }
 
     /**
-     * Confirm COD payment collection
+     * Enhanced COD payment confirmation with better error handling
      */
     function confirmCODPayment() {
-        const $modal = $('#rrm-cod-modal');
-        const orderId = $modal.data('order-id');
+        const orderId = $('#rrm-cod-modal').data('order-id');
         const collectedAmount = parseFloat($('#rrm-collected-amount').val());
-        const notes = $('#rrm-payment-notes').val();
-
+        const notes = $('#rrm-payment-notes').val().trim();
+        const orderTotal = parseFloat($('#rrm-cod-order-total').text().replace('$', ''));
+        
+        // Validation
         if (!collectedAmount || collectedAmount <= 0) {
             showToast('Please enter a valid amount', 'error');
             return;
         }
-
+        
+        if (collectedAmount < orderTotal) {
+            showToast('Collected amount cannot be less than order total', 'error');
+            return;
+        }
+        
+        const changeAmount = collectedAmount - orderTotal;
+        
+        // Show confirmation dialog for large change amounts
+        if (changeAmount > 50) {
+            if (!confirm(`Change amount is $${changeAmount.toFixed(2)}. Please confirm this is correct.`)) {
+                return;
+            }
+        }
+        
         const data = {
+            action: 'rdm_collect_cod_payment',
+            nonce: rdm_ajax.nonce,
             order_id: orderId,
             collected_amount: collectedAmount,
-            notes: notes
+            change_amount: changeAmount,
+            notes: notes,
+            timestamp: new Date().toISOString()
         };
-
-        if (RDM_STATE.isOnline) {
-            collectCODPayment(data);
-        } else {
+        
+        // Disable button and show loading
+        const $confirmBtn = $('#rrm-confirm-payment');
+        const originalText = $confirmBtn.text();
+        $confirmBtn.prop('disabled', true).text('Processing...');
+        
+        if (!RDM_STATE.isOnline) {
+            // Queue for offline sync
             queueOfflineAction('collect_payment', data);
-            showToast('Payment queued for sync', 'warning');
-            $modal.hide();
+            showToast('Payment queued for sync when online', 'warning');
+            closeCODModal();
+            updateOrderStatusLocally(orderId, 'delivered');
+            return;
         }
-    }
-
-    /**
-     * Process COD payment collection
-     */
-    function collectCODPayment(data) {
-        return $.ajax({
-            url: rrmAgent.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'rdm_collect_cod_payment',
-                nonce: rrmAgent.nonce,
-                ...data
-            },
-            success: function(response) {
-                if (response.success) {
-                    showToast('Payment collected successfully', 'success');
-                    $('#rrm-cod-modal').hide();
-                    loadOrders();
-                } else {
-                    showToast(response.data.message || 'Payment collection failed', 'error');
-                }
-            },
-            error: function() {
-                showToast('Network error. Payment queued for sync.', 'warning');
-                queueOfflineAction('collect_payment', data);
-                $('#rrm-cod-modal').hide();
-            }
-        });
-    }
-
-    // ========================================
-    // Photo Upload for Delivery Confirmation
-    // ========================================
-
-    /**
-     * Show photo upload modal
-     */
-    function showPhotoModal(orderId) {
-        const $modal = $('#rrm-photo-modal');
-        const $preview = $('#rrm-photo-preview');
-        const $camera = $('.rrm-camera-section');
         
-        $modal.data('order-id', orderId).show();
-        $preview.hide();
-        $camera.show();
-    }
-
-    /**
-     * Handle photo capture
-     */
-    function handlePhotoCapture() {
-        const $input = $('#rrm-photo-input');
-        $input.trigger('click');
-    }
-
-    /**
-     * Handle photo selection
-     */
-    function handlePhotoSelection(file) {
-        if (!file) return;
-
-        // Validate file
-        if (!file.type.startsWith('image/')) {
-            showToast('Please select an image file', 'error');
-            return;
-        }
-
-        if (file.size > 5 * 1024 * 1024) { // 5MB limit
-            showToast('Image too large. Maximum 5MB allowed.', 'error');
-            return;
-        }
-
-        // Show preview
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            $('#rrm-preview-image').attr('src', e.target.result);
-            $('#rrm-photo-preview').show();
-            $('.rrm-camera-section').hide();
-        };
-        reader.readAsDataURL(file);
-    }
-
-    /**
-     * Upload delivery photo
-     */
-    function uploadDeliveryPhoto() {
-        const $modal = $('#rrm-photo-modal');
-        const orderId = $modal.data('order-id');
-        const fileInput = document.getElementById('rrm-photo-input');
-        
-        if (!fileInput.files[0]) {
-            showToast('No photo selected', 'error');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('action', 'rdm_upload_delivery_photo');
-        formData.append('nonce', rrmAgent.nonce);
-        formData.append('order_id', orderId);
-        formData.append('delivery_photo', fileInput.files[0]);
-
         $.ajax({
-            url: rrmAgent.ajaxUrl,
+            url: rdm_ajax.ajax_url,
             type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
+            data: data,
+            timeout: 15000,
             success: function(response) {
                 if (response.success) {
-                    showToast('Photo uploaded successfully', 'success');
-                    $modal.hide();
+                    showToast('Payment collected successfully!', 'success');
+                    closeCODModal();
                     
-                    // Mark order as delivered after photo upload
-                    updateOrderStatus(orderId, 'delivered', 'Delivery confirmed with photo');
+                    // Update order status in local data
+                    updateOrderStatusLocally(orderId, 'delivered');
+                    loadOrders(); // Refresh order list
+                    
+                    // Update daily totals
+                    updateDailyTotals(collectedAmount, changeAmount);
                 } else {
-                    showToast(response.data.message || 'Photo upload failed', 'error');
+                    showToast(response.data?.message || 'Payment collection failed', 'error');
                 }
             },
-            error: function() {
-                showToast('Network error. Please try again.', 'error');
+            error: function(xhr, status, error) {
+                console.error('COD payment collection error:', error);
+                
+                if (status === 'timeout') {
+                    showToast('Request timeout. Payment queued for retry.', 'warning');
+                } else {
+                    showToast('Network error. Payment queued for sync.', 'warning');
+                }
+                
+                // Queue for offline sync
+                queueOfflineAction('collect_payment', data);
+                closeCODModal();
+                updateOrderStatusLocally(orderId, 'delivered');
+            },
+            complete: function() {
+                $confirmBtn.prop('disabled', false).text(originalText);
             }
         });
     }
 
     /**
-     * Retake photo
+     * Update order status locally
      */
-    function retakePhoto() {
-        $('#rrm-photo-preview').hide();
-        $('.rrm-camera-section').show();
-        $('#rrm-photo-input').val('');
+    function updateOrderStatusLocally(orderId, newStatus) {
+        const orderIndex = RDM_STATE.currentOrders.findIndex(o => o.id == orderId);
+        if (orderIndex !== -1) {
+            RDM_STATE.currentOrders[orderIndex].status = newStatus;
+            if (newStatus === 'delivered') {
+                RDM_STATE.currentOrders[orderIndex].completed_at = new Date().toISOString();
+            }
+        }
     }
 
     // ========================================
-    // Order Details Modal
+    // Cash Reconciliation System
     // ========================================
 
     /**
-     * Show order details
+     * Show daily cash reconciliation modal
      */
-    function showOrderDetails(orderId) {
+    function showReconciliationModal() {
+        loadReconciliationData();
+        $('#rrm-reconciliation-modal').addClass('active');
+    }
+
+    /**
+     * Close reconciliation modal
+     */
+    function closeReconciliationModal() {
+        $('#rrm-reconciliation-modal').removeClass('active');
+    }
+
+    /**
+     * Load reconciliation data for today
+     */
+    function loadReconciliationData() {
+        const data = {
+            action: 'rdm_get_agent_reconciliation',
+            nonce: rdm_ajax.nonce,
+            date: new Date().toISOString().split('T')[0] // Today's date
+        };
+        
         $.ajax({
-            url: rrmAgent.ajaxUrl,
+            url: rdm_ajax.ajax_url,
             type: 'POST',
-            data: {
-                action: 'rdm_get_order_details',
-                nonce: rrmAgent.nonce,
-                order_id: orderId
-            },
+            data: data,
             success: function(response) {
                 if (response.success) {
-                    renderOrderDetails(response.data);
+                    populateReconciliationData(response.data);
                 } else {
-                    showToast(response.data.message || 'Failed to load order details', 'error');
+                    // Initialize with empty data
+                    populateReconciliationData({
+                        total_orders: 0,
+                        total_collections: 0,
+                        total_change: 0,
+                        expected_cash: 0
+                    });
                 }
             },
             error: function() {
-                showToast('Network error. Please try again.', 'error');
+                showToast('Failed to load reconciliation data', 'error');
             }
         });
     }
 
     /**
-     * Render order details in modal
+     * Populate reconciliation modal with data
      */
-    function renderOrderDetails(order) {
-        const $modal = $('#rrm-order-modal');
-        const $title = $('#rrm-order-title');
-        const $content = $('#rrm-order-details-content');
+    function populateReconciliationData(data) {
+        $('#rrm-total-orders').text(data.total_orders || 0);
+        $('#rrm-total-collections').text(formatCurrency(data.total_collections || 0));
+        $('#rrm-total-change').text(formatCurrency(data.total_change || 0));
+        $('#rrm-expected-cash').text(formatCurrency(data.expected_cash || (data.total_collections - data.total_change) || 0));
         
-        $title.text(`Order #${order.id}`);
+        // Reset form
+        $('#rrm-actual-cash').val('');
+        $('#rrm-reconciliation-notes').val('');
+        $('#rrm-variance-display').hide();
+    }
+
+    /**
+     * Calculate variance between expected and actual cash
+     */
+    function calculateVariance() {
+        const $actualInput = $('#rrm-actual-cash');
+        const $varianceDisplay = $('#rrm-variance-display');
+        const $varianceAmount = $('#rrm-variance-amount');
         
-        const detailsHtml = `
-            <div class="rrm-order-details-section">
-                <h4>Customer Information</h4>
-                <div class="rrm-order-details-item">
-                    <span class="rrm-order-details-label">Name:</span>
-                    <span class="rrm-order-details-value">${escapeHtml(order.customer.name)}</span>
-                </div>
-                <div class="rrm-order-details-item">
-                    <span class="rrm-order-details-label">Phone:</span>
-                    <span class="rrm-order-details-value">
-                        <a href="tel:${escapeHtml(order.customer.phone)}">${escapeHtml(order.customer.phone)}</a>
-                    </span>
-                </div>
-                <div class="rrm-order-details-item">
-                    <span class="rrm-order-details-label">Address:</span>
-                    <span class="rrm-order-details-value">${order.shipping_address}</span>
-                </div>
-            </div>
-            
-            <div class="rrm-order-details-section">
-                <h4>Order Information</h4>
-                <div class="rrm-order-details-item">
-                    <span class="rrm-order-details-label">Status:</span>
-                    <span class="rrm-order-details-value">${escapeHtml(order.status)}</span>
-                </div>
-                <div class="rrm-order-details-item">
-                    <span class="rrm-order-details-label">Total:</span>
-                    <span class="rrm-order-details-value">${order.formatted_total}</span>
-                </div>
-                <div class="rrm-order-details-item">
-                    <span class="rrm-order-details-label">Payment:</span>
-                    <span class="rrm-order-details-value">${escapeHtml(order.payment_method_title)}</span>
-                </div>
-            </div>
-            
-            <div class="rrm-order-details-section">
-                <h4>Items</h4>
-                ${order.items.map(item => `
-                    <div class="rrm-order-details-item">
-                        <span class="rrm-order-details-label">${escapeHtml(item.name)} (${item.quantity}x):</span>
-                        <span class="rrm-order-details-value">${formatCurrency(item.total)}</span>
-                    </div>
-                `).join('')}
-            </div>
-            
-            ${order.notes ? `
-                <div class="rrm-order-details-section">
-                    <h4>Customer Notes</h4>
-                    <p class="rrm-customer-notes">${escapeHtml(order.notes)}</p>
-                </div>
-            ` : ''}
-        `;
+        const actualCash = parseFloat($actualInput.val()) || 0;
+        const expectedCash = parseFloat($('#rrm-expected-cash').text().replace('$', ''));
         
-        $content.html(detailsHtml);
-        $modal.show();
+        if (actualCash > 0) {
+            const variance = actualCash - expectedCash;
+            $varianceAmount.text(formatCurrency(Math.abs(variance)));
+            
+            // Update display style based on variance
+            $varianceDisplay.removeClass('positive negative');
+            if (variance > 0) {
+                $varianceDisplay.addClass('positive');
+                $varianceAmount.css('color', '#28a745');
+            } else if (variance < 0) {
+                $varianceDisplay.addClass('negative');
+                $varianceAmount.css('color', '#dc3545');
+            } else {
+                $varianceAmount.css('color', '#333');
+            }
+            
+            $varianceDisplay.show();
+        } else {
+            $varianceDisplay.hide();
+        }
+    }
+
+    /**
+     * Submit daily cash reconciliation
+     */
+    function submitReconciliation() {
+        const actualCash = parseFloat($('#rrm-actual-cash').val());
+        const expectedCash = parseFloat($('#rrm-expected-cash').text().replace('$', ''));
+        const notes = $('#rrm-reconciliation-notes').val().trim();
+        
+        // Validation
+        if (!actualCash || actualCash < 0) {
+            showToast('Please enter the actual cash amount', 'error');
+            return;
+        }
+        
+        const variance = actualCash - expectedCash;
+        
+        // Require notes for significant variances
+        if (Math.abs(variance) > 5 && !notes) {
+            showToast('Please provide notes explaining the variance', 'error');
+            return;
+        }
+        
+        const data = {
+            action: 'rdm_submit_reconciliation',
+            nonce: rdm_ajax.nonce,
+            actual_cash: actualCash,
+            expected_cash: expectedCash,
+            variance: variance,
+            notes: notes,
+            date: new Date().toISOString().split('T')[0]
+        };
+        
+        // Show loading state
+        const $submitBtn = $('#rrm-submit-reconciliation');
+        const originalText = $submitBtn.text();
+        $submitBtn.prop('disabled', true).text('Submitting...');
+        
+        if (!RDM_STATE.isOnline) {
+            queueOfflineAction('submit_reconciliation', data);
+            showToast('Reconciliation queued for sync when online', 'warning');
+            closeReconciliationModal();
+            return;
+        }
+        
+        $.ajax({
+            url: rdm_ajax.ajax_url,
+            type: 'POST',
+            data: data,
+            success: function(response) {
+                if (response.success) {
+                    showToast('Reconciliation submitted successfully!', 'success');
+                    closeReconciliationModal();
+                } else {
+                    showToast(response.data?.message || 'Reconciliation submission failed', 'error');
+                }
+            },
+            error: function() {
+                showToast('Network error. Reconciliation queued for sync.', 'warning');
+                queueOfflineAction('submit_reconciliation', data);
+                closeReconciliationModal();
+            },
+            complete: function() {
+                $submitBtn.prop('disabled', false).text(originalText);
+            }
+        });
+    }
+
+    /**
+     * Update daily totals (called after successful payment collection)
+     */
+    function updateDailyTotals(collectedAmount, changeAmount) {
+        // Update stored daily totals for reconciliation
+        const dailyTotals = getOfflineData('daily_totals') || {
+            total_orders: 0,
+            total_collections: 0,
+            total_change: 0,
+            date: new Date().toISOString().split('T')[0]
+        };
+        
+        // Check if it's a new day
+        const today = new Date().toISOString().split('T')[0];
+        if (dailyTotals.date !== today) {
+            // Reset for new day
+            dailyTotals.total_orders = 0;
+            dailyTotals.total_collections = 0;
+            dailyTotals.total_change = 0;
+            dailyTotals.date = today;
+        }
+        
+        // Update totals
+        dailyTotals.total_orders += 1;
+        dailyTotals.total_collections += collectedAmount;
+        dailyTotals.total_change += changeAmount;
+        
+        storeOfflineData('daily_totals', dailyTotals);
     }
 
     // ========================================
@@ -1079,6 +1176,9 @@
     $(document).ready(function() {
         // Initialize main functionality
         init();
+        
+        // Initialize COD payment system
+        initializeCODSystem();
 
         // Refresh button
         $('#rrm-refresh-btn').on('click', function() {
@@ -1130,9 +1230,6 @@
             showOrderDetails(orderId);
         });
 
-        // COD payment confirmation
-        $('#rrm-confirm-payment').on('click', confirmCODPayment);
-
         // Photo capture handlers
         $('#rrm-take-photo').on('click', handlePhotoCapture);
         $('#rrm-upload-photo').on('click', uploadDeliveryPhoto);
@@ -1157,4 +1254,4 @@
         });
     });
 
-})(jQuery); 
+})(jQuery);

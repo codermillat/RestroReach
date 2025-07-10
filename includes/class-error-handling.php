@@ -102,7 +102,7 @@ class RDM_Error_Handling {
      * @param bool $log_error Whether to log errors (default: true)
      * @return WP_REST_Response|WP_Error Response or error
      */
-    public static function execute_rest_with_error_handling(callable $callback, string $context, int $success_status = 200, bool $log_error = true) {
+    public static function execute_rest_with_error_handling(callable $callback, string $context, int $success_status = 200, bool $log_error = true): WP_REST_Response|WP_Error {
         try {
             $result = $callback();
             return new WP_REST_Response($result, $success_status);

@@ -210,7 +210,7 @@ class RDM_Mobile_Frontend {
     /**
      * Get authenticated user ID from secure session
      */
-    private function get_authenticated_user_id() {
+    public function get_authenticated_user_id() {
         if (!empty($_COOKIE['rdm_agent_session'])) {
             $session_token = sanitize_text_field($_COOKIE['rdm_agent_session']);
             $session_data = get_transient('rdm_agent_session_' . $session_token);
@@ -366,9 +366,12 @@ class RDM_Mobile_Frontend {
      */
     public function ajax_upload_delivery_photo() {
         try {
-            check_ajax_referer('rdm_agent_mobile', 'nonce');
+            // Security check
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+                throw new Exception(__('Security check failed.', 'restaurant-delivery-manager'));
+            }
             
-            $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+            $user_id = $this->get_authenticated_user_id();
             if (!$user_id) {
                 throw new Exception(__('Not authenticated.', 'restaurant-delivery-manager'));
             }
@@ -478,9 +481,12 @@ class RDM_Mobile_Frontend {
      */
     public function ajax_collect_cod_payment() {
         try {
-            check_ajax_referer('rdm_agent_mobile', 'nonce');
+            // Security check
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+                throw new Exception(__('Security check failed.', 'restaurant-delivery-manager'));
+            }
             
-            $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+            $user_id = $this->get_authenticated_user_id();
             if (!$user_id) {
                 throw new Exception(__('Not authenticated.', 'restaurant-delivery-manager'));
             }
@@ -552,9 +558,12 @@ class RDM_Mobile_Frontend {
      */
     public function ajax_update_agent_location() {
         try {
-            check_ajax_referer('rdm_agent_mobile', 'nonce');
+            // Security check
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+                throw new Exception(__('Security check failed.', 'restaurant-delivery-manager'));
+            }
             
-            $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+            $user_id = $this->get_authenticated_user_id();
             if (!$user_id) {
                 throw new Exception(__('Not authenticated.', 'restaurant-delivery-manager'));
             }
@@ -599,9 +608,12 @@ class RDM_Mobile_Frontend {
      */
     public function ajax_get_order_details() {
         try {
-            check_ajax_referer('rdm_agent_mobile', 'nonce');
+            // Security check
+            if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+                throw new Exception(__('Security check failed.', 'restaurant-delivery-manager'));
+            }
             
-            $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
+            $user_id = $this->get_authenticated_user_id();
             if (!$user_id) {
                 throw new Exception(__('Not authenticated.', 'restaurant-delivery-manager'));
             }

@@ -89,6 +89,30 @@ $timeline = $tracking_data['status_timeline'];
                     <?php echo esc_html__('Total:', 'restaurant-delivery-manager'); ?> 
                     <?php echo esc_html($order['total']); ?>
                 </div>
+                
+                <!-- Payment Status -->
+                <?php 
+                // Check if the order uses COD payment method
+                $wc_order = wc_get_order($order['id']);
+                if ($wc_order && $wc_order->get_payment_method() === 'cod') :
+                    $payments_class = RDM_Payments::instance();
+                    $payment_status = $payments_class->get_payment_status_by_order_id($order['id']);
+                ?>
+                    <div class="rdm-payment-status">
+                        <div class="rdm-payment-label">
+                            <?php echo esc_html__('Payment Status:', 'restaurant-delivery-manager'); ?>
+                        </div>
+                        <div class="rdm-payment-badge rdm-payment-<?php echo esc_attr($payment_status['class']); ?>">
+                            <?php echo esc_html($payment_status['label']); ?>
+                        </div>
+                        <?php if ($payment_status['status'] === 'collected' && !empty($payment_status['collected_at'])) : ?>
+                            <div class="rdm-payment-details">
+                                <?php echo esc_html__('Collected:', 'restaurant-delivery-manager'); ?> 
+                                <?php echo esc_html(wp_date(get_option('time_format'), strtotime($payment_status['collected_at']))); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
             </div>
             
             <!-- Contact Information -->

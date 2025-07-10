@@ -252,7 +252,11 @@ class RDM_Database {
             PRIMARY KEY (id),
             UNIQUE KEY order_id (order_id),
             KEY agent_id (agent_id),
-            KEY status (status)
+            KEY status (status),
+            KEY assigned_at (assigned_at),
+            KEY idx_agent_assigned_date (agent_id, assigned_at),
+            KEY idx_status_assigned_date (status, assigned_at),
+            KEY delivered_at (delivered_at)
         ) $charset_collate;";
         
         $result = dbDelta($sql);
@@ -281,7 +285,10 @@ class RDM_Database {
             battery_level int(3) DEFAULT NULL,
             PRIMARY KEY (id),
             KEY agent_id (agent_id),
-            KEY timestamp (timestamp)
+            KEY timestamp (timestamp),
+            KEY idx_agent_timestamp (agent_id, timestamp),
+            KEY idx_location_coords (latitude, longitude),
+            KEY idx_battery_timestamp (battery_level, timestamp)
         ) $charset_collate;";
         
         $result = dbDelta($sql);
@@ -413,6 +420,8 @@ class RDM_Database {
             variance decimal(10, 2) NULL,
             status varchar(20) DEFAULT 'pending',
             notes text NULL,
+            admin_notes text NULL,
+            discrepancy_flag tinyint(1) DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
@@ -1186,43 +1195,45 @@ class RDM_Database {
     // ========================================
     
     /**
-     * Get nearby agents based on location
+     * Get nearby agents based on location (optimized)
      *
      * @since 1.0.0
      * @param float $latitude Center latitude
      * @param float $longitude Center longitude
      * @param float $radius_km Radius in kilometers
+     * @param bool $use_cache Whether to use caching
      * @return array Array of nearby agents with distance
      */
-    public function get_nearby_agents(float $latitude, float $longitude, float $radius_km = 5): array {
+    public function get_nearby_agents(float $latitude, float $longitude, float $radius_km = 5, bool $use_cache = true): array {
+        // Cache key based on location and radius
+        $cache_key = 'rdm_nearby_agents_' . md5("{$latitude}_{$longitude}_{$radius_km}");
+        
+        if ($use_cache) {
+            $cached_result = get_transient($cache_key);
+            if ($cached_result !== false) {
+                return $cached_result;
+            }
+        }
+        
         global $wpdb;
         
-        // Using Haversine formula for distance calculation
+        // Optimized query with proper JOIN and latest location subquery
         $query = $wpdb->prepare(
-            "SELECT da.*, lt.latitude, lt.longitude, u.display_name,
-                (6371 * acos(cos(radians(%f)) * cos(radians(lt.latitude)) * 
-                cos(radians(lt.longitude) - radians(%f)) + sin(radians(%f)) * 
-                sin(radians(lt.latitude)))) AS distance
-             FROM {$this->tables['delivery_agents']} da
-             INNER JOIN {$this->tables['location_tracking']} lt ON da.id = lt.agent_id
-             INNER JOIN {$wpdb->users} u ON da.user_id = u.ID
-             WHERE da.availability = 1 
-             AND da.status = 'active'
-             AND lt.timestamp >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-             AND lt.timestamp = (
-                 SELECT MAX(timestamp) 
-                 FROM {$this->tables['location_tracking']} 
-                 WHERE agent_id = da.id
-             )
-             HAVING distance <= %f
-             ORDER BY distance ASC",
+            "SELECT da.*, lt.latitude, lt.longitude, u.display_name,\n                (6371 * acos(cos(radians(%f)) * cos(radians(lt.latitude)) * \n                cos(radians(lt.longitude) - radians(%f)) + sin(radians(%f)) * \n                sin(radians(lt.latitude)))) AS distance\n             FROM {$this->tables['delivery_agents']} da\n             INNER JOIN (\n                 SELECT agent_id, latitude, longitude, timestamp,\n                        ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY timestamp DESC) as rn\n                 FROM {$this->tables['location_tracking']}\n                 WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)\n             ) lt ON da.id = lt.agent_id AND lt.rn = 1\n             INNER JOIN {$wpdb->users} u ON da.user_id = u.ID\n             WHERE da.availability = 1 \n             AND da.status = 'active'\n             HAVING distance <= %f\n             ORDER BY distance ASC\n             LIMIT 20",
             $latitude,
             $longitude,
             $latitude,
             $radius_km
         );
         
-        return $wpdb->get_results($query);
+        $results = $wpdb->get_results($query);
+        
+        // Cache results for 2 minutes
+        if ($use_cache && !empty($results)) {
+            set_transient($cache_key, $results, 120);
+        }
+        
+        return $results;
     }
     
     /**

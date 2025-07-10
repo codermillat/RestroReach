@@ -107,7 +107,13 @@ class RDM_Payments {
         add_action('wp_ajax_rdm_generate_cash_report', array($this, 'ajax_generate_cash_report'));
         add_action('wp_ajax_rdm_verify_payment', array($this, 'ajax_verify_payment'));
         add_action('wp_ajax_rdm_verify_reconciliation', array($this, 'ajax_verify_reconciliation'));
+        add_action('wp_ajax_rdm_get_reconciliation_report', array($this, 'ajax_get_reconciliation_report'));
+        add_action('wp_ajax_rdm_get_reconciliation_details', array($this, 'ajax_get_reconciliation_details'));
+        add_action('wp_ajax_rdm_export_reconciliation_csv', array($this, 'ajax_export_reconciliation_csv'));
         
+        // Admin POST handlers for non-AJAX requests
+        add_action('admin_post_rdm_export_reconciliation_csv', array($this, 'handle_csv_export'));
+
         // WooCommerce integration hooks
         add_action('woocommerce_order_status_changed', array($this, 'handle_order_status_change'), 10, 4);
         add_action('woocommerce_thankyou', array($this, 'create_payment_record'), 10, 1);
@@ -138,6 +144,230 @@ class RDM_Payments {
         // The database class handles all table creation during plugin activation
     }
     
+    /**
+     * Enqueue payment assets
+     *
+     * @since 1.0.0
+     * @return void
+     */
+    public function enqueue_payment_assets(): void {
+        // Only load on pages that need payment functionality
+        if (!$this->should_load_payment_assets()) {
+            return;
+        }
+        
+        // Check if required constants are defined
+        if (!defined('RDM_PLUGIN_URL') || !defined('RDM_VERSION')) {
+            error_log('RestroReach: Required plugin constants not defined for payment assets');
+            return;
+        }
+        
+        // Enqueue payment styles
+        wp_enqueue_style(
+            'rdm-payments',
+            RDM_PLUGIN_URL . 'assets/css/rdm-payments.css',
+            array(),
+            RDM_VERSION
+        );
+        
+        // Enqueue payment scripts
+        wp_enqueue_script(
+            'rdm-payments',
+            RDM_PLUGIN_URL . 'assets/js/rdm-payments.js',
+            array('jquery'),
+            RDM_VERSION,
+            true
+        );
+        
+        // Localize script with payment configuration
+        wp_localize_script('rdm-payments', 'rdmPayments', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('rdm_payments_nonce'),
+            'currency' => get_woocommerce_currency_symbol(),
+            'i18n' => array(
+                'confirmCollection' => __('Are you sure you want to collect this payment?', 'restaurant-delivery-manager'),
+                'invalidAmount' => __('Please enter a valid amount', 'restaurant-delivery-manager'),
+                'collectionSuccess' => __('Payment collected successfully', 'restaurant-delivery-manager'),
+                'collectionError' => __('Failed to collect payment', 'restaurant-delivery-manager'),
+                'calculating' => __('Calculating...', 'restaurant-delivery-manager'),
+            ),
+        ));
+    }
+    
+    /**
+     * Add payment meta boxes to WooCommerce orders
+     *
+     * @since 1.0.0
+     * @return void
+     */
+    public function add_payment_meta_boxes(): void {
+        global $post;
+        
+        // Only add to shop orders
+        if (!$post || get_post_type($post->ID) !== 'shop_order') {
+            return;
+        }
+        
+        $order = wc_get_order($post->ID);
+        if (!$order) {
+            return;
+        }
+        
+        // Only add for COD orders
+        if ($order->get_payment_method() === 'cod') {
+            add_meta_box(
+                'rdm-payment-details',
+                __('Delivery Payment Details', 'restaurant-delivery-manager'),
+                array($this, 'render_payment_meta_box'),
+                'shop_order',
+                'side',
+                'high'
+            );
+        }
+    }
+    
+    /**
+     * Render payment meta box content
+     *
+     * @since 1.0.0
+     * @param WP_Post $post Order post object
+     * @return void
+     */
+    public function render_payment_meta_box($post): void {
+        $order = wc_get_order($post->ID);
+        if (!$order) {
+            return;
+        }
+        
+        $payment = $this->get_payment_record($order->get_id());
+        
+        echo '<div class="rdm-payment-meta-box">';
+        
+        if ($payment) {
+            echo '<table class="form-table">';
+            echo '<tr><td><strong>' . esc_html__('Payment Status:', 'restaurant-delivery-manager') . '</strong></td>';
+            echo '<td>' . esc_html(ucfirst($payment->status)) . '</td></tr>';
+            
+            if ($payment->status === 'collected') {
+                echo '<tr><td><strong>' . esc_html__('Collected Amount:', 'restaurant-delivery-manager') . '</strong></td>';
+                echo '<td>' . wc_price($payment->collected_amount) . '</td></tr>';
+                
+                echo '<tr><td><strong>' . esc_html__('Change Given:', 'restaurant-delivery-manager') . '</strong></td>';
+                echo '<td>' . wc_price($payment->change_amount) . '</td></tr>';
+                
+                if ($payment->collected_at) {
+                    echo '<tr><td><strong>' . esc_html__('Collected At:', 'restaurant-delivery-manager') . '</strong></td>';
+                    echo '<td>' . esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($payment->collected_at))) . '</td></tr>';
+                }
+                
+                if ($payment->agent_id) {
+                    $agent = $this->database->get_agent($payment->agent_id);
+                    if ($agent) {
+                        echo '<tr><td><strong>' . esc_html__('Collected By:', 'restaurant-delivery-manager') . '</strong></td>';
+                        echo '<td>' . esc_html($agent->display_name) . '</td></tr>';
+                    }
+                }
+            }
+            echo '</table>';
+        } else {
+            echo '<p>' . esc_html__('No payment record found for this order.', 'restaurant-delivery-manager') . '</p>';
+        }
+        
+        echo '</div>';
+    }
+    
+    /**
+     * Handle WooCommerce order status changes
+     *
+     * @since 1.0.0
+     * @param int $order_id Order ID
+     * @param string $old_status Old status
+     * @param string $new_status New status  
+     * @param WC_Order $order Order object
+     * @return void
+     */
+    public function handle_order_status_change(int $order_id, string $old_status, string $new_status, $order): void {
+        // Only handle COD orders
+        if ($order->get_payment_method() !== 'cod') {
+            return;
+        }
+        
+        // Create payment record when order is placed
+        if ($new_status === 'processing' || $new_status === 'preparing') {
+            $this->create_payment_record($order_id);
+        }
+        
+        // Handle completion status
+        if ($new_status === 'completed' && $old_status !== 'completed') {
+            $payment = $this->get_payment_record($order_id);
+            if ($payment && $payment->status === 'pending') {
+                // Auto-collect for manual completions
+                $this->auto_collect_payment($order_id);
+            }
+        }
+    }
+    
+    /**
+     * Auto-collect payment for manually completed orders
+     *
+     * @since 1.0.0
+     * @param int $order_id Order ID
+     * @return void
+     */
+    private function auto_collect_payment(int $order_id): void {
+        global $wpdb;
+        
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return;
+        }
+        
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        $wpdb->update(
+            $payment_table,
+            array(
+                'status' => 'collected',
+                'collected_amount' => $order->get_total(),
+                'change_amount' => 0,
+                'collected_at' => current_time('mysql'),
+                'notes' => __('Auto-collected on manual completion', 'restaurant-delivery-manager')
+            ),
+            array('order_id' => $order_id),
+            array('%s', '%f', '%f', '%s', '%s'),
+            array('%d')
+        );
+    }
+    
+    /**
+     * Check if payment assets should be loaded
+     *
+     * @since 1.0.0
+     * @return bool
+     */
+    private function should_load_payment_assets(): bool {
+        global $post;
+        
+        // Load on admin order pages
+        if (is_admin()) {
+            $screen = get_current_screen();
+            if ($screen && ($screen->post_type === 'shop_order' || strpos($screen->id, 'restroreach') !== false)) {
+                return true;
+            }
+        }
+        
+        // Load on mobile agent pages
+        if (isset($_GET['rdm_page']) && $_GET['rdm_page'] === 'agent-dashboard') {
+            return true;
+        }
+        
+        // Load on customer tracking pages
+        if ($post && has_shortcode($post->post_content, 'rdm_order_tracking')) {
+            return true;
+        }
+        
+        return false;
+    }
+
     // ========================================
     // COD Payment Collection Methods
     // ========================================
@@ -153,8 +383,12 @@ class RDM_Payments {
      * @return array Result of collection attempt
      */
     public function handle_cod_collection(int $order_id, int $agent_id, float $collected_amount, array $options = array()): array {
+        // Debug logging
+        error_log('[RDM] COD Collection initiated - Order: ' . $order_id . ', Agent: ' . $agent_id . ', Amount: ' . $collected_amount);
+        
         // Security check
         if (!current_user_can('rdm_handle_cod_payment')) {
+            error_log('[RDM] COD Collection failed - Insufficient permissions for user: ' . get_current_user_id());
             return array(
                 'success' => false,
                 'message' => __('Insufficient permissions to handle COD payments', 'restaurant-delivery-manager')
@@ -167,6 +401,7 @@ class RDM_Payments {
             // Validate order
             $order = wc_get_order($order_id);
             if (!$order) {
+                error_log('[RDM] COD Collection failed - Invalid order ID: ' . $order_id);
                 throw new Exception(__('Invalid order ID', 'restaurant-delivery-manager'));
             }
             
@@ -498,51 +733,178 @@ class RDM_Payments {
     }
     
     // ========================================
-    // AJAX Handlers
+    // AJAX Handlers for COD Collection
     // ========================================
     
     /**
-     * AJAX handler for COD payment collection
+     * AJAX handler for COD payment collection (Enhanced Security)
      *
      * @since 1.0.0
      */
     public function ajax_collect_cod_payment(): void {
-        // Use centralized security validation
-        $security_result = RDM_Security_Utilities::validate_agent_ajax_request('rdm_agent_mobile');
-        if (is_wp_error($security_result)) {
-            return; // Error already sent by validation method
-        }
-        
-        // Get current agent
-        $agent_id = $this->get_current_agent_id();
-        if (!$agent_id) {
-            wp_send_json_error(array('message' => __('Not authenticated as delivery agent', 'restaurant-delivery-manager')));
-        }
-        
-        // Use centralized input validation
-        $order_id = RDM_Security_Utilities::validate_order_id($_POST['order_id'] ?? 0);
-        if (is_wp_error($order_id)) {
-            return; // Error already sent by validation method
-        }
-        
-        $collected_amount = RDM_Security_Utilities::validate_amount($_POST['collected_amount'] ?? 0);
-        if (is_wp_error($collected_amount)) {
-            return; // Error already sent by validation method
-        }
-        
-        $notes = RDM_Security_Utilities::sanitize_textarea($_POST['notes'] ?? '');
-        
-        if ($collected_amount <= 0) {
-            wp_send_json_error(array('message' => __('Invalid collection amount', 'restaurant-delivery-manager')));
-        }
-        
-        // Process collection
-        $result = $this->handle_cod_collection($order_id, $agent_id, $collected_amount, array('notes' => $notes));
-        
-        if ($result['success']) {
-            wp_send_json_success($result);
-        } else {
-            wp_send_json_error($result);
+        try {
+            // Rate limiting check
+            $user_id = get_current_user_id();
+            $rate_limit_key = 'rdm_cod_collection_' . $user_id;
+            $collection_attempts = get_transient($rate_limit_key) ?: 0;
+            
+            if ($collection_attempts > 10) { // Max 10 attempts per hour
+                wp_send_json_error(array(
+                    'message' => __('Too many collection attempts. Please try again later.', 'restaurant-delivery-manager'),
+                    'error_code' => 'rate_limit_exceeded'
+                ));
+                return;
+            }
+            
+            // Increment attempt counter
+            set_transient($rate_limit_key, $collection_attempts + 1, HOUR_IN_SECONDS);
+            
+            // Enhanced nonce verification with specific action
+            $nonce = $_POST['nonce'] ?? '';
+            if (!wp_verify_nonce($nonce, 'rdm_mobile_nonce') && !wp_verify_nonce($nonce, 'rdm_agent_mobile')) {
+                wp_send_json_error(array(
+                    'message' => __('Security check failed', 'restaurant-delivery-manager'),
+                    'error_code' => 'nonce_failed'
+                ));
+                return;
+            }
+            
+            // Enhanced capability check
+            if (!current_user_can('rdm_handle_cod_payment')) {
+                wp_send_json_error(array(
+                    'message' => __('Insufficient permissions', 'restaurant-delivery-manager'),
+                    'error_code' => 'insufficient_permissions'
+                ));
+                return;
+            }
+            
+            // Enhanced input validation and sanitization
+            $order_id = $this->validate_order_id($_POST['order_id'] ?? 0);
+            if (!$order_id) {
+                wp_send_json_error(array(
+                    'message' => __('Invalid order ID', 'restaurant-delivery-manager'),
+                    'error_code' => 'invalid_order_id'
+                ));
+                return;
+            }
+            
+            $collected_amount = $this->validate_amount($_POST['collected_amount'] ?? 0);
+            if ($collected_amount === false) {
+                wp_send_json_error(array(
+                    'message' => __('Invalid collection amount', 'restaurant-delivery-manager'),
+                    'error_code' => 'invalid_amount'
+                ));
+                return;
+            }
+            
+            $change_amount = $this->validate_amount($_POST['change_amount'] ?? 0, true); // Allow zero
+            $notes = $this->sanitize_payment_notes($_POST['notes'] ?? '');
+            $timestamp = $this->validate_timestamp($_POST['timestamp'] ?? '');
+            
+            // Get current agent with enhanced validation
+            $agent_id = $this->get_current_agent_id();
+            if (!$agent_id) {
+                wp_send_json_error(array(
+                    'message' => __('Agent not found or not authenticated', 'restaurant-delivery-manager'),
+                    'error_code' => 'agent_not_found'
+                ));
+                return;
+            }
+            
+            // Enhanced order assignment validation
+            if (!$this->is_order_assigned_to_agent($order_id, $agent_id)) {
+                wp_send_json_error(array(
+                    'message' => __('Order not assigned to current agent', 'restaurant-delivery-manager'),
+                    'error_code' => 'order_not_assigned'
+                ));
+                return;
+            }
+            
+            // Validate order amount consistency
+            $order = wc_get_order($order_id);
+            if (!$order) {
+                wp_send_json_error(array(
+                    'message' => __('Order not found', 'restaurant-delivery-manager'),
+                    'error_code' => 'order_not_found'
+                ));
+                return;
+            }
+            
+            $order_total = floatval($order->get_total());
+            
+            // Enhanced amount validation
+            if (!$this->validate_collection_amounts($order_total, $collected_amount, $change_amount)) {
+                wp_send_json_error(array(
+                    'message' => __('Invalid amount configuration', 'restaurant-delivery-manager'),
+                    'error_code' => 'invalid_amounts'
+                ));
+                return;
+            }
+            
+            // Check for duplicate payment collection
+            if ($this->is_payment_already_collected($order_id)) {
+                wp_send_json_error(array(
+                    'message' => __('Payment already collected for this order', 'restaurant-delivery-manager'),
+                    'error_code' => 'payment_already_collected'
+                ));
+                return;
+            }
+            
+            // Process the payment with enhanced security
+            $options = array(
+                'notes' => $notes,
+                'metadata' => array(
+                    'timestamp' => $timestamp,
+                    'collected_via' => 'mobile_app',
+                    'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
+                    'ip_address' => $this->get_client_ip(),
+                    'session_id' => session_id() ?: 'unknown'
+                )
+            );
+            
+            $result = $this->handle_cod_collection($order_id, $agent_id, $collected_amount, $options);
+            
+            if ($result['success']) {
+                // Log successful collection
+                $this->log_payment_security_event('cod_collection_success', array(
+                    'order_id' => $order_id,
+                    'agent_id' => $agent_id,
+                    'amount' => $collected_amount
+                ));
+                
+                wp_send_json_success(array(
+                    'message' => $result['message'],
+                    'data' => array_merge($result['data'], array(
+                        'collection_time' => current_time('c'),
+                        'collection_id' => uniqid('cod_')
+                    ))
+                ));
+            } else {
+                // Log failed collection
+                $this->log_payment_security_event('cod_collection_failed', array(
+                    'order_id' => $order_id,
+                    'agent_id' => $agent_id,
+                    'error' => $result['message']
+                ));
+                
+                wp_send_json_error(array(
+                    'message' => $result['message'],
+                    'error_code' => 'collection_failed'
+                ));
+            }
+            
+        } catch (Exception $e) {
+            // Log security exception
+            $this->log_payment_security_event('cod_collection_exception', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ));
+            
+            error_log('RestroReach COD Collection Error: ' . $e->getMessage());
+            wp_send_json_error(array(
+                'message' => __('An error occurred while processing payment', 'restaurant-delivery-manager'),
+                'error_code' => 'exception'
+            ));
         }
     }
     
@@ -605,13 +967,18 @@ class RDM_Payments {
      * @since 1.0.0
      */
     public function ajax_reconcile_cash(): void {
+        // Debug logging
+        error_log('[RDM] Cash reconciliation initiated');
+        
         // Verify nonce
         if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_agent_mobile')) {
+            error_log('[RDM] Cash reconciliation failed - Security check failed');
             wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
         }
         
         $agent_id = $this->get_current_agent_id();
         if (!$agent_id) {
+            error_log('[RDM] Cash reconciliation failed - No agent ID found');
             wp_send_json_error(array('message' => __('Not authenticated as delivery agent', 'restaurant-delivery-manager')));
         }
         
@@ -620,6 +987,8 @@ class RDM_Payments {
         $submitted_amount = floatval($_POST['submitted_amount'] ?? 0);
         $notes = sanitize_textarea_field($_POST['notes'] ?? '');
         $date = sanitize_text_field($_POST['date'] ?? current_time('Y-m-d'));
+        
+        error_log('[RDM] Cash reconciliation data - Agent: ' . $agent_id . ', Amount: ' . $submitted_amount . ', Date: ' . $date);
         
         $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
         
@@ -753,281 +1122,873 @@ class RDM_Payments {
             wp_send_json_error(array('message' => __('Invalid reconciliation ID', 'restaurant-delivery-manager')));
         }
         
+        // Get verify action and admin notes
+        $verify_action = sanitize_text_field($_POST['verify_action'] ?? 'approve');
+        $admin_notes = sanitize_textarea_field($_POST['admin_notes'] ?? '');
+        
         $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
+        
+        // Check if reconciliation exists and get current data
+        $reconciliation = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $reconciliation_table WHERE id = %d",
+            $reconciliation_id
+        ));
+        
+        if (!$reconciliation) {
+            wp_send_json_error(array('message' => __('Reconciliation not found', 'restaurant-delivery-manager')));
+        }
+        
+        // Determine status based on action
+        $new_status = ($verify_action === 'approve') ? 'verified' : 'rejected';
+        
+        // Check for large discrepancy and set flag
+        $variance = abs((float) $reconciliation->variance);
+        $discrepancy_flag = $variance > 50 ? 1 : 0;
+        
+        $update_data = array(
+            'status' => $new_status,
+            'admin_notes' => $admin_notes,
+            'discrepancy_flag' => $discrepancy_flag,
+            'updated_at' => current_time('mysql')
+        );
         
         $result = $wpdb->update(
             $reconciliation_table,
-            array(
-                'status' => 'verified',
-                'updated_at' => current_time('mysql')
-            ),
+            $update_data,
             array('id' => $reconciliation_id),
-            array('%s', '%s'),
+            array('%s', '%s', '%d', '%s'),
             array('%d')
         );
         
         if ($result !== false) {
+            $action_text = ($verify_action === 'approve') ? 'approved' : 'rejected';
             wp_send_json_success(array(
-                'message' => __('Cash reconciliation verified successfully', 'restaurant-delivery-manager')
+                'message' => sprintf(__('Cash reconciliation %s successfully', 'restaurant-delivery-manager'), $action_text)
             ));
         } else {
-            wp_send_json_error(array('message' => __('Failed to verify reconciliation', 'restaurant-delivery-manager')));
+            wp_send_json_error(array('message' => __('Failed to update reconciliation', 'restaurant-delivery-manager')));
         }
     }
     
+    /**
+     * AJAX handler for getting reconciliation details
+     *
+     * @since 1.1.0
+     */
+    public function ajax_get_reconciliation_details(): void {
+        // Security check
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'restaurant-delivery-manager')));
+        }
+        
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_admin_nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+        }
+        
+        global $wpdb;
+        
+        $reconciliation_id = absint($_POST['reconciliation_id'] ?? 0);
+        
+        if (!$reconciliation_id) {
+            wp_send_json_error(array('message' => __('Invalid reconciliation ID', 'restaurant-delivery-manager')));
+        }
+        
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
+        $agents_table = $this->database->get_table_name('delivery_agents');
+        
+        $reconciliation = $wpdb->get_row($wpdb->prepare(
+            "SELECT r.*, u.display_name as agent_name
+             FROM $reconciliation_table r
+             INNER JOIN $agents_table a ON r.agent_id = a.id
+             INNER JOIN {$wpdb->users} u ON a.user_id = u.ID
+             WHERE r.id = %d",
+            $reconciliation_id
+        ));
+        
+        if (!$reconciliation) {
+            wp_send_json_error(array('message' => __('Reconciliation not found', 'restaurant-delivery-manager')));
+        }
+        
+        $response_data = array(
+            'agent_name' => $reconciliation->agent_name,
+            'date' => wp_date(get_option('date_format'), strtotime($reconciliation->reconciliation_date)),
+            'collections' => wc_price($reconciliation->total_collections),
+            'variance' => wc_price($reconciliation->variance ?? 0),
+            'agent_notes' => $reconciliation->notes,
+            'admin_notes' => $reconciliation->admin_notes ?? ''
+        );
+        
+        wp_send_json_success($response_data);
+    }
+    
+    // ========================================
+    // CSV Export Methods
+    // ========================================
+    
+    /**
+     * AJAX handler for CSV export
+     *
+     * @since 1.0.0
+     */
+    public function ajax_export_reconciliation_csv(): void {
+        // Security check
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'restaurant-delivery-manager')));
+        }
+        
+        // Verify nonce
+        if (!wp_verify_nonce($_GET['nonce'] ?? '', 'rdm_admin_nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+        }
+        
+        $this->export_reconciliation_csv();
+    }
+    
+    /**
+     * Handle CSV export via admin-post
+     *
+     * @since 1.0.0
+     */
+    public function handle_csv_export(): void {
+        // Security check
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(__('Insufficient permissions', 'restaurant-delivery-manager'), 403);
+        }
+        
+        // Verify nonce
+        if (!check_admin_referer('rdm_export_csv', 'nonce')) {
+            wp_die(__('Security check failed', 'restaurant-delivery-manager'), 403);
+        }
+        
+        $this->export_reconciliation_csv();
+    }
+    
+    /**
+     * Export reconciliation data to CSV
+     *
+     * @since 1.0.0
+     */
+    private function export_reconciliation_csv(): void {
+        global $wpdb;
+        
+        // Sanitize inputs
+        $date_from = sanitize_text_field($_GET['date_from'] ?? date('Y-m-d', strtotime('-7 days')));
+        $date_to = sanitize_text_field($_GET['date_to'] ?? current_time('Y-m-d'));
+        $agent_id = !empty($_GET['agent_id']) ? absint($_GET['agent_id']) : 0;
+        
+        // Validate date format
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
+            wp_die(__('Invalid date format', 'restaurant-delivery-manager'), 400);
+        }
+        
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
+        $agents_table = $this->database->get_table_name('delivery_agents');
+        
+        // Build query
+        $sql = "SELECT 
+                    u.display_name as agent_name,
+                    pt.order_id,
+                    pt.amount as expected_amount,
+                    pt.collected_amount as received_amount,
+                    (pt.collected_amount - pt.amount) as discrepancy,
+                    pt.collected_at as submission_date,
+                    pt.status,
+                    pt.notes,
+                    r.variance as reconciliation_variance,
+                    r.status as reconciliation_status,
+                    r.admin_notes,
+                    r.discrepancy_flag
+                FROM $payment_table pt
+                INNER JOIN $agents_table a ON pt.agent_id = a.id
+                INNER JOIN {$wpdb->users} u ON a.user_id = u.ID
+                LEFT JOIN $reconciliation_table r ON (pt.agent_id = r.agent_id AND DATE(pt.collected_at) = r.reconciliation_date)
+                WHERE pt.payment_type = 'cod'
+                AND pt.status = 'collected'
+                AND DATE(pt.collected_at) BETWEEN %s AND %s";
+        
+        $params = array($date_from, $date_to);
+        
+        if ($agent_id > 0) {
+            $sql .= " AND pt.agent_id = %d";
+            $params[] = $agent_id;
+        }
+        
+        $sql .= " ORDER BY pt.collected_at DESC";
+        
+        $results = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        
+        // Generate filename
+        $filename = 'reconciliation-report-' . $date_from . '-to-' . $date_to . '.csv';
+        
+        // Set headers for CSV download
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        header('Expires: 0');
+        
+        // Clean output buffer
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+        
+        // Add UTF-8 BOM for Excel compatibility
+        echo chr(239) . chr(187) . chr(191);
+        
+        // Open output stream
+        $output = fopen('php://output', 'w');
+        
+        // Add CSV headers
+        $csv_headers = array(
+            __('Agent Name', 'restaurant-delivery-manager'),
+            __('Order ID', 'restaurant-delivery-manager'),
+            __('Expected Amount', 'restaurant-delivery-manager'),
+            __('Received Amount', 'restaurant-delivery-manager'),
+            __('Discrepancy', 'restaurant-delivery-manager'),
+            __('Submission Date', 'restaurant-delivery-manager'),
+            __('Payment Status', 'restaurant-delivery-manager'),
+            __('Agent Notes', 'restaurant-delivery-manager'),
+            __('Reconciliation Variance', 'restaurant-delivery-manager'),
+            __('Reconciliation Status', 'restaurant-delivery-manager'),
+            __('Admin Notes', 'restaurant-delivery-manager'),
+            __('High Discrepancy Flag', 'restaurant-delivery-manager')
+        );
+        
+        fputcsv($output, $csv_headers);
+        
+        // Add data rows
+        foreach ($results as $row) {
+            $csv_row = array(
+                $row['agent_name'],
+                $row['order_id'],
+                number_format((float)$row['expected_amount'], 2),
+                number_format((float)$row['received_amount'], 2),
+                number_format((float)$row['discrepancy'], 2),
+                wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($row['submission_date'])),
+                ucfirst($row['status']),
+                $row['notes'] ?? '',
+                $row['reconciliation_variance'] ? number_format((float)$row['reconciliation_variance'], 2) : '',
+                $row['reconciliation_status'] ? ucfirst($row['reconciliation_status']) : '',
+                $row['admin_notes'] ?? '',
+                $row['discrepancy_flag'] == 1 ? 'YES' : 'NO'
+            );
+            
+            fputcsv($output, $csv_row);
+        }
+        
+        // Add summary row
+        if (!empty($results)) {
+            $total_expected = array_sum(array_column($results, 'expected_amount'));
+            $total_received = array_sum(array_column($results, 'received_amount'));
+            $total_discrepancy = $total_received - $total_expected;
+            
+            // Add empty row
+            fputcsv($output, array());
+            
+            // Add summary
+            fputcsv($output, array(
+                __('SUMMARY', 'restaurant-delivery-manager'),
+                count($results) . ' ' . __('orders', 'restaurant-delivery-manager'),
+                number_format($total_expected, 2),
+                number_format($total_received, 2),
+                number_format($total_discrepancy, 2),
+                '',
+                '',
+                '',
+                '',
+                ''
+            ));
+        }
+        
+        fclose($output);
+        exit;
+    }
+    
+    /**
+     * AJAX handler for getting reconciliation report data
+     *
+     * @since 1.0.0
+     */
+    public function ajax_get_reconciliation_report(): void {
+        // Security check
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'restaurant-delivery-manager')));
+        }
+        
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_admin_nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+        }
+        
+        global $wpdb;
+        
+        $date = sanitize_text_field($_POST['date'] ?? current_time('Y-m-d'));
+        
+        // Validate date format
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            wp_send_json_error(array('message' => __('Invalid date format', 'restaurant-delivery-manager')));
+        }
+        
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
+        $agents_table = $this->database->get_table_name('delivery_agents');
+        
+        $sql = "SELECT 
+                    r.id,
+                    u.display_name as agent_name,
+                    COUNT(pt.id) as total_orders,
+                    COALESCE(SUM(pt.collected_amount), 0) as total_collections,
+                    COALESCE(SUM(pt.change_amount), 0) as total_change,
+                    (COALESCE(SUM(pt.collected_amount), 0) - COALESCE(SUM(pt.change_amount), 0)) as expected_cash,
+                    r.submitted_amount,
+                    r.variance,
+                    r.status,
+                    r.notes
+                FROM $reconciliation_table r
+                INNER JOIN $agents_table a ON r.agent_id = a.id
+                INNER JOIN {$wpdb->users} u ON a.user_id = u.ID
+                LEFT JOIN $payment_table pt ON (pt.agent_id = r.agent_id AND DATE(pt.collected_at) = r.reconciliation_date AND pt.payment_type = 'cod' AND pt.status = 'collected')
+                WHERE r.reconciliation_date = %s
+                GROUP BY r.id, u.display_name, r.submitted_amount, r.variance, r.status, r.notes
+                ORDER BY u.display_name";
+        
+        $results = $wpdb->get_results($wpdb->prepare($sql, $date));
+        
+        // Format results for frontend
+        $formatted_results = array();
+        foreach ($results as $row) {
+            $formatted_results[] = array(
+                'id' => $row->id,
+                'agent_name' => $row->agent_name,
+                'total_orders' => $row->total_orders,
+                'total_collections' => wc_price($row->total_collections),
+                'total_change' => wc_price($row->total_change),
+                'expected_cash' => wc_price($row->expected_cash),
+                'submitted_amount' => $row->submitted_amount ? wc_price($row->submitted_amount) : '-',
+                'variance' => $row->variance ? wc_price($row->variance) : '-',
+                'status' => ucfirst($row->status),
+                'notes' => $row->notes ?: ''
+            );
+        }
+        
+        wp_send_json_success($formatted_results);
+    }
+
     // ========================================
     // Helper Methods
     // ========================================
     
     /**
-     * Get current agent ID from session/cookie
+     * Get current agent ID from secure session
      *
      * @since 1.0.0
      * @return int|false Agent ID or false if not found
      */
     private function get_current_agent_id() {
-        // Get user ID from cookie (as implemented in mobile frontend)
-        $user_id = isset($_COOKIE['rdm_agent_logged_in']) ? intval($_COOKIE['rdm_agent_logged_in']) : 0;
-        
-        if (!$user_id) {
-            return false;
-        }
-        
-        // Get agent record from database
-        $agent = $this->database->get_agent_by_user_id($user_id);
-        return $agent ? $agent->id : false;
-    }
-    
-    /**
-     * Send reconciliation notification to agent
-     *
-     * @since 1.0.0
-     * @param int $user_id WordPress user ID
-     * @param array $report Cash report data
-     */
-    private function send_reconciliation_notification(int $user_id, array $report): void {
-        $user = get_userdata($user_id);
-        if (!$user) {
-            return;
-        }
-        
-        // Use notification system if available
-        if (class_exists('RDM_Notifications')) {
-            $notifications = RDM_Notifications::instance();
-            $notifications->send_notification(
-                $user_id,
-                'cash_reconciliation',
-                sprintf(
-                    __('Daily cash reconciliation required for %s. Net amount: %s', 'restaurant-delivery-manager'),
-                    $report['date'],
-                    wc_price($report['summary']['net_amount'])
-                ),
-                array('report' => $report)
-            );
-        }
-    }
-    
-    /**
-     * Enqueue payment-related assets
-     *
-     * @since 1.0.0
-     */
-    public function enqueue_payment_assets(): void {
-        $page = get_query_var('rdm_agent_page');
-        
-        if ($page === 'dashboard') {
-            wp_enqueue_style(
-                'rdm-payments',
-                plugin_dir_url(__FILE__) . '../assets/css/rdm-payments.css',
-                array(),
-                RDM_VERSION
-            );
+        // Use secure session authentication from mobile frontend
+        if (class_exists('RDM_Mobile_Frontend')) {
+            $mobile_frontend = RDM_Mobile_Frontend::instance();
+            $user_id = $mobile_frontend->get_authenticated_user_id();
             
-            wp_enqueue_script(
-                'rdm-payments',
-                plugin_dir_url(__FILE__) . '../assets/js/rdm-payments.js',
-                array('jquery'),
-                RDM_VERSION,
-                true
-            );
+            if (!$user_id) {
+                return false;
+            }
             
-            wp_localize_script('rdm-payments', 'rdmPayments', array(
-                'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('rdm_agent_mobile'),
-                'currency' => get_woocommerce_currency_symbol(),
-                'texts' => array(
-                    'collectPayment' => __('Collect Payment', 'restaurant-delivery-manager'),
-                    'changeCalculated' => __('Change calculated', 'restaurant-delivery-manager'),
-                    'insufficientPayment' => __('Insufficient payment amount', 'restaurant-delivery-manager'),
-                    'paymentCollected' => __('Payment collected successfully', 'restaurant-delivery-manager'),
-                    'error' => __('An error occurred', 'restaurant-delivery-manager')
-                )
-            ));
+            // Get agent record from database
+            $agent = $this->database->get_agent_by_user_id($user_id);
+            return $agent ? $agent->id : false;
         }
+        
+        // Fallback for admin context
+        if (is_admin() && current_user_can('rdm_handle_cod_payment')) {
+            $current_user = wp_get_current_user();
+            if ($current_user && user_can($current_user, 'delivery_agent')) {
+                $agent = $this->database->get_agent_by_user_id($current_user->ID);
+                return $agent ? $agent->id : false;
+            }
+        }
+        
+        return false;
     }
     
     /**
-     * Add payment meta boxes to admin order edit page
-     *
-     * @since 1.0.0
-     */
-    public function add_payment_meta_boxes(): void {
-        add_meta_box(
-            'rdm_payment_details',
-            __('Delivery Payment Details', 'restaurant-delivery-manager'),
-            array($this, 'render_payment_meta_box'),
-            'shop_order',
-            'side',
-            'default'
-        );
-    }
-    
-    /**
-     * Render payment details meta box
-     *
-     * @since 1.0.0
-     * @param WP_Post $post Order post object
-     */
-    public function render_payment_meta_box($post): void {
-        $order_id = $post->ID;
-        $payment = $this->get_payment_record($order_id);
-        
-        if (!$payment) {
-            echo '<p>' . esc_html__('No payment record found.', 'restaurant-delivery-manager') . '</p>';
-            return;
-        }
-        
-        echo '<div class="rdm-payment-details">';
-        echo '<p><strong>' . esc_html__('Payment Type:', 'restaurant-delivery-manager') . '</strong> ' . esc_html($this->payment_types[$payment->payment_type] ?? $payment->payment_type) . '</p>';
-        echo '<p><strong>' . esc_html__('Status:', 'restaurant-delivery-manager') . '</strong> ' . esc_html($this->payment_statuses[$payment->status] ?? $payment->status) . '</p>';
-        echo '<p><strong>' . esc_html__('Amount:', 'restaurant-delivery-manager') . '</strong> ' . wc_price($payment->amount) . '</p>';
-        
-        if ($payment->collected_amount) {
-            echo '<p><strong>' . esc_html__('Collected:', 'restaurant-delivery-manager') . '</strong> ' . wc_price($payment->collected_amount) . '</p>';
-            echo '<p><strong>' . esc_html__('Change:', 'restaurant-delivery-manager') . '</strong> ' . wc_price($payment->change_amount) . '</p>';
-        }
-        
-        if ($payment->collected_at) {
-            echo '<p><strong>' . esc_html__('Collected At:', 'restaurant-delivery-manager') . '</strong> ' . esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), strtotime($payment->collected_at))) . '</p>';
-        }
-        
-        if ($payment->notes) {
-            echo '<p><strong>' . esc_html__('Notes:', 'restaurant-delivery-manager') . '</strong></p>';
-            echo '<p>' . esc_html($payment->notes) . '</p>';
-        }
-        echo '</div>';
-    }
-    
-    /**
-     * Handle order status changes
+     * Check if order is assigned to agent
      *
      * @since 1.0.0
      * @param int $order_id Order ID
-     * @param string $old_status Old status
-     * @param string $new_status New status
-     * @param WC_Order $order Order object
+     * @param int $agent_id Agent ID
+     * @return bool True if assigned
      */
-    public function handle_order_status_change(int $order_id, string $old_status, string $new_status, $order): void {
-        // Create payment record when order is confirmed
-        if ($new_status === 'processing' || $new_status === 'preparing') {
-            $this->create_payment_record($order_id);
+    private function is_order_assigned_to_agent(int $order_id, int $agent_id): bool {
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return false;
+        }
+        
+        $assigned_agent_id = $order->get_meta('_rdm_assigned_agent_id');
+        return intval($assigned_agent_id) === $agent_id;
+    }
+    
+    /**
+     * Get device information for logging
+     *
+     * @since 1.0.0
+     * @return array Device info
+     */
+    private function get_device_info(): array {
+        return array(
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'ip_address' => $this->get_client_ip(),
+            'timestamp' => current_time('c')
+        );
+    }
+    
+    /**
+     * Get client IP address
+     *
+     * @since 1.0.0
+     * @return string IP address
+     */
+    private function get_client_ip(): string {
+        $ip_keys = array('HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP', 'REMOTE_ADDR');
+        
+        foreach ($ip_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $ip = $_SERVER[$key];
+                if (strpos($ip, ',') !== false) {
+                    $ip = trim(explode(',', $ip)[0]);
+                }
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $ip;
+                }
+            }
+        }
+        
+        return $_SERVER['REMOTE_ADDR'] ?? '';
+    }
+    
+    /**
+     * Get current location (if available)
+     *
+     * @since 1.0.0
+     * @return array|null Location data
+     */
+    private function get_current_location(): ?array {
+        // This would be populated from GPS tracking data
+        // For now, we'll return null and implement later
+        return null;
+    }
+    
+    /**
+     * Get agent reconciliation data for a specific date
+     *
+     * @since 1.0.0
+     * @param int $agent_id Agent ID
+     * @param string $date Date in Y-m-d format
+     * @return array Reconciliation data
+     */
+    public function get_agent_reconciliation_data(int $agent_id, string $date): array {
+        global $wpdb;
+        
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        
+        // Get COD transactions for the date
+        $transactions = $wpdb->get_results($wpdb->prepare(
+            "SELECT COUNT(*) as total_orders,
+                    COALESCE(SUM(collected_amount), 0) as total_collections,
+                    COALESCE(SUM(change_amount), 0) as total_change
+             FROM $payment_table
+             WHERE agent_id = %d
+             AND payment_type = 'cod'
+             AND status = 'collected'
+             AND DATE(collected_at) = %s",
+            $agent_id,
+            $date
+        ));
+        
+        $data = $transactions[0] ?? (object) array(
+            'total_orders' => 0,
+            'total_collections' => 0,
+            'total_change' => 0
+        );
+        
+        return array(
+            'total_orders' => intval($data->total_orders),
+            'total_collections' => floatval($data->total_collections),
+            'total_change' => floatval($data->total_change),
+            'expected_cash' => floatval($data->total_collections) - floatval($data->total_change),
+            'date' => $date
+        );
+    }
+    
+    /**
+     * Submit cash reconciliation
+     *
+     * @since 1.0.0
+     * @param int $agent_id Agent ID
+     * @param string $date Date
+     * @param float $actual_cash Actual cash amount
+     * @param float $expected_cash Expected cash amount
+     * @param float $variance Variance amount
+     * @param string $notes Notes
+     * @return int|false Reconciliation ID or false on failure
+     */
+    public function submit_cash_reconciliation(int $agent_id, string $date, float $actual_cash, float $expected_cash, float $variance, string $notes = '') {
+        global $wpdb;
+        
+        $reconciliation_table = $this->database->get_table_name('cash_reconciliation');
+        
+        // Check if reconciliation already exists for this date
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $reconciliation_table WHERE agent_id = %d AND reconciliation_date = %s",
+            $agent_id,
+            $date
+        ));
+        
+        $data = array(
+            'submitted_amount' => $actual_cash,
+            'variance' => $variance,
+            'status' => abs($variance) <= 2 ? 'approved' : 'pending_review',
+            'notes' => $notes,
+            'updated_at' => current_time('mysql')
+        );
+        
+        if ($existing) {
+            // Update existing record
+            $result = $wpdb->update(
+                $reconciliation_table,
+                $data,
+                array('id' => $existing->id),
+                array('%f', '%f', '%s', '%s', '%s'),
+                array('%d')
+            );
+            
+            return $result !== false ? $existing->id : false;
+        } else {
+            // Create new record
+            $reconciliation_data = $this->get_agent_reconciliation_data($agent_id, $date);
+            
+            $insert_data = array_merge($data, array(
+                'agent_id' => $agent_id,
+                'reconciliation_date' => $date,
+                'total_collections' => $reconciliation_data['total_collections'],
+                'total_change_given' => $reconciliation_data['total_change'],
+                'closing_balance' => $reconciliation_data['expected_cash']
+            ));
+            
+            $result = $wpdb->insert(
+                $reconciliation_table,
+                $insert_data,
+                array('%d', '%s', '%f', '%f', '%f', '%f', '%f', '%s', '%s', '%s')
+            );
+            
+            return $result ? $wpdb->insert_id : false;
+        }
+    }
+    
+    // ========================================
+    // Helper Methods for Payment Status
+    // ========================================
+    
+    /**
+     * Get payment status by order ID
+     *
+     * @since 1.0.0
+     * @param int $order_id Order ID
+     * @return array Payment status data
+     */
+    public function get_payment_status_by_order_id(int $order_id): array {
+        global $wpdb;
+        
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        
+        $payment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $payment_table WHERE order_id = %d",
+            $order_id
+        ));
+        
+        if (!$payment) {
+            return array(
+                'status' => 'unknown',
+                'label' => __('Unknown', 'restaurant-delivery-manager'),
+                'class' => 'unknown'
+            );
+        }
+        
+        switch ($payment->status) {
+            case 'collected':
+                return array(
+                    'status' => 'collected',
+                    'label' => __('COD Received', 'restaurant-delivery-manager'),
+                    'class' => 'received',
+                    'collected_at' => $payment->collected_at,
+                    'collected_amount' => $payment->collected_amount,
+                    'change_amount' => $payment->change_amount
+                );
+                
+            case 'pending':
+                return array(
+                    'status' => 'pending',
+                    'label' => __('COD Pending', 'restaurant-delivery-manager'),
+                    'class' => 'pending'
+                );
+                
+            case 'discrepancy':
+                return array(
+                    'status' => 'discrepancy',
+                    'label' => __('COD Discrepancy', 'restaurant-delivery-manager'),
+                    'class' => 'discrepancy',
+                    'notes' => $payment->notes
+                );
+                
+            default:
+                return array(
+                    'status' => $payment->status,
+                    'label' => ucfirst($payment->status),
+                    'class' => 'other'
+                );
         }
     }
     
     /**
-     * Get payment statistics for dashboard
+     * Add missing helper methods referenced in existing code
+     */
+    
+    /**
+     * Log payment action for audit trail
      *
      * @since 1.0.0
-     * @param array $filters Optional filters
-     * @return array Payment statistics
      */
-    public function get_payment_statistics(array $filters = array()): array {
+    private function log_payment_action(int $order_id, int $agent_id, string $action, array $data = array()): void {
+        error_log("RestroReach Payment Action: Order {$order_id}, Agent {$agent_id}, Action: {$action}, Data: " . wp_json_encode($data));
+    }
+    
+    /**
+     * Send payment notifications
+     *
+     * @since 1.0.0
+     */
+    private function send_payment_notifications(int $order_id, int $agent_id, string $type): void {
+        // Placeholder for notification system
+        do_action('rdm_payment_notification', $order_id, $agent_id, $type);
+    }
+    
+    /**
+     * Get last transaction ID for order
+     *
+     * @since 1.0.0
+     */
+    private function get_last_transaction_id(int $order_id): ?string {
         global $wpdb;
         
         $payment_table = $this->database->get_table_name('payment_transactions');
-        $where_clauses = array('1=1');
-        $values = array();
         
-        // Apply filters
-        if (!empty($filters['date_from'])) {
-            $where_clauses[] = 'DATE(created_at) >= %s';
-            $values[] = $filters['date_from'];
+        $transaction = $wpdb->get_var($wpdb->prepare(
+            "SELECT transaction_reference FROM $payment_table WHERE order_id = %d ORDER BY created_at DESC LIMIT 1",
+            $order_id
+        ));
+        
+        return $transaction ?: uniqid('rdm_');
+    }
+    
+    /**
+     * Send variance notification for large discrepancies
+     *
+     * @since 1.0.0
+     */
+    private function send_variance_notification(int $agent_id, float $variance, string $date): void {
+        // Placeholder for variance notification system
+        do_action('rdm_variance_notification', $agent_id, $variance, $date);
+    }
+
+    /**
+     * Enhanced order ID validation
+     *
+     * @param mixed $order_id Raw order ID input
+     * @return int|false Valid order ID or false
+     */
+    private function validate_order_id($order_id) {
+        $order_id = absint($order_id);
+        
+        if ($order_id <= 0) {
+            return false;
         }
         
-        if (!empty($filters['date_to'])) {
-            $where_clauses[] = 'DATE(created_at) <= %s';
-            $values[] = $filters['date_to'];
+        // Check if order exists
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return false;
         }
         
-        if (!empty($filters['agent_id'])) {
-            $where_clauses[] = 'agent_id = %d';
-            $values[] = $filters['agent_id'];
+        // Check if order is valid for COD collection
+        if (!in_array($order->get_status(), array('processing', 'out-for-delivery', 'preparing'))) {
+            return false;
         }
         
-        if (!empty($filters['payment_type'])) {
-            $where_clauses[] = 'payment_type = %s';
-            $values[] = $filters['payment_type'];
+        return $order_id;
+    }
+
+    /**
+     * Enhanced amount validation
+     *
+     * @param mixed $amount Raw amount input
+     * @param bool $allow_zero Whether to allow zero values
+     * @return float|false Valid amount or false
+     */
+    private function validate_amount($amount, bool $allow_zero = false) {
+        if (!is_numeric($amount)) {
+            return false;
         }
         
-        $where_sql = implode(' AND ', $where_clauses);
+        $amount = floatval($amount);
         
-        // Build query
-        $query = "SELECT 
-            payment_type,
-            status,
-            COUNT(*) as transaction_count,
-            SUM(amount) as total_amount,
-            SUM(collected_amount) as total_collected,
-            SUM(change_amount) as total_change
-            FROM $payment_table 
-            WHERE $where_sql 
-            GROUP BY payment_type, status";
-        
-        if (!empty($values)) {
-            $query = $wpdb->prepare($query, $values);
+        if (!$allow_zero && $amount <= 0) {
+            return false;
         }
         
-        $results = $wpdb->get_results($query);
+        if ($allow_zero && $amount < 0) {
+            return false;
+        }
         
-        // Process results
-        $statistics = array(
-            'total_transactions' => 0,
-            'total_amount' => 0,
-            'total_collected' => 0,
-            'total_change' => 0,
-            'by_type' => array(),
-            'by_status' => array()
+        // Prevent unreasonably large amounts (over $10,000)
+        if ($amount > 10000) {
+            return false;
+        }
+        
+        // Round to 2 decimal places
+        return round($amount, 2);
+    }
+
+    /**
+     * Sanitize payment notes
+     *
+     * @param string $notes Raw notes input
+     * @return string Sanitized notes
+     */
+    private function sanitize_payment_notes(string $notes): string {
+        $notes = sanitize_textarea_field($notes);
+        
+        // Limit length to prevent database overflow
+        if (strlen($notes) > 500) {
+            $notes = substr($notes, 0, 500);
+        }
+        
+        return $notes;
+    }
+
+    /**
+     * Validate timestamp
+     *
+     * @param string $timestamp Raw timestamp input
+     * @return string Valid timestamp
+     */
+    private function validate_timestamp(string $timestamp): string {
+        if (empty($timestamp)) {
+            return current_time('c');
+        }
+        
+        // Validate timestamp format
+        $parsed_time = strtotime($timestamp);
+        if ($parsed_time === false) {
+            return current_time('c');
+        }
+        
+        // Ensure timestamp is not in the future (with 5 minute tolerance)
+        $now = time();
+        if ($parsed_time > ($now + 300)) {
+            return current_time('c');
+        }
+        
+        // Ensure timestamp is not too old (24 hours)
+        if ($parsed_time < ($now - 86400)) {
+            return current_time('c');
+        }
+        
+        return date('c', $parsed_time);
+    }
+
+    /**
+     * Validate collection amounts consistency
+     *
+     * @param float $order_total Order total amount
+     * @param float $collected_amount Amount collected from customer
+     * @param float $change_amount Change given to customer
+     * @return bool Whether amounts are valid
+     */
+    private function validate_collection_amounts(float $order_total, float $collected_amount, float $change_amount): bool {
+        // Collected amount must be at least the order total
+        if ($collected_amount < $order_total) {
+            return false;
+        }
+        
+        // Change amount should be reasonable
+        $expected_change = $collected_amount - $order_total;
+        $change_difference = abs($change_amount - $expected_change);
+        
+        // Allow small rounding differences (1 cent)
+        if ($change_difference > 0.01) {
+            return false;
+        }
+        
+        // Prevent excessive overpayment (more than $100 over order total)
+        if (($collected_amount - $order_total) > 100) {
+            return false;
+        }
+        
+        return true;
+    }
+
+    /**
+     * Check if payment is already collected
+     *
+     * @param int $order_id Order ID
+     * @return bool Whether payment is already collected
+     */
+    private function is_payment_already_collected(int $order_id): bool {
+        global $wpdb;
+        
+        $payment_table = $this->database->get_table_name('payment_transactions');
+        
+        $count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $payment_table WHERE order_id = %d AND status IN ('collected', 'verified', 'reconciled')",
+            $order_id
+        ));
+        
+        return $count > 0;
+    }
+
+    /**
+     * Log payment security events
+     *
+     * @param string $event_type Event type
+     * @param array $data Event data
+     * @return void
+     */
+    private function log_payment_security_event(string $event_type, array $data): void {
+        $log_entry = array(
+            'timestamp' => current_time('mysql'),
+            'event_type' => $event_type,
+            'user_id' => get_current_user_id(),
+            'ip_address' => $this->get_client_ip(),
+            'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
+            'data' => $data
         );
         
-        foreach ($results as $row) {
-            $statistics['total_transactions'] += $row->transaction_count;
-            $statistics['total_amount'] += floatval($row->total_amount);
-            $statistics['total_collected'] += floatval($row->total_collected);
-            $statistics['total_change'] += floatval($row->total_change);
-            
-            if (!isset($statistics['by_type'][$row->payment_type])) {
-                $statistics['by_type'][$row->payment_type] = array(
-                    'count' => 0,
-                    'amount' => 0,
-                    'collected' => 0
-                );
-            }
-            
-            $statistics['by_type'][$row->payment_type]['count'] += $row->transaction_count;
-            $statistics['by_type'][$row->payment_type]['amount'] += floatval($row->total_amount);
-            $statistics['by_type'][$row->payment_type]['collected'] += floatval($row->total_collected);
-            
-            if (!isset($statistics['by_status'][$row->status])) {
-                $statistics['by_status'][$row->status] = array(
-                    'count' => 0,
-                    'amount' => 0
-                );
-            }
-            
-            $statistics['by_status'][$row->status]['count'] += $row->transaction_count;
-            $statistics['by_status'][$row->status]['amount'] += floatval($row->total_amount);
+        // Store in WordPress options (could be moved to dedicated log table)
+        $logs = get_option('rdm_payment_security_logs', array());
+        
+        // Keep only last 100 entries
+        if (count($logs) > 100) {
+            $logs = array_slice($logs, -100);
         }
         
-        return $statistics;
+        $logs[] = $log_entry;
+        update_option('rdm_payment_security_logs', $logs, false);
+        
+        // Log critical events to error log
+        if (in_array($event_type, array('cod_collection_exception', 'payment_fraud_detected'))) {
+            error_log('RestroReach Payment Security Event: ' . wp_json_encode($log_entry));
+        }
     }
-} 
+}

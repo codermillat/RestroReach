@@ -580,69 +580,244 @@ class RDM_Google_Maps {
     }
 
     /**
-     * Geocode an address using Google Geocoding API
+     * Geocode an address using Google Geocoding API (enhanced error handling)
      *
      * @param string $address Address to geocode
+     * @param bool $use_cache Whether to use cache
+     * @param int $retry_count Number of retries
      * @return array|false Coordinates or false on failure
      */
-    public function geocode_address(string $address) {
-        $logger = wc_get_logger();
+    public function geocode_address(string $address, bool $use_cache = true, int $retry_count = 3) {
+        if (empty($address)) {
+            error_log('RestroReach: Empty address provided for geocoding');
+            return false;
+        }
+        
+        $logger = function_exists('wc_get_logger') ? wc_get_logger() : null;
         $context = ['source' => 'rdm-google-maps'];
         
         // Validate API key first
         if (empty($this->api_key)) {
-            $logger->error('Cannot geocode - Google Maps API key not configured', $context);
-            return false;
+            $error_msg = 'Cannot geocode - Google Maps API key not configured';
+            if ($logger) {
+                $logger->error($error_msg, $context);
+            } else {
+                error_log('RestroReach: ' . $error_msg);
+            }
+            return $this->geocode_fallback($address);
         }
         
-        $logger->debug('Geocoding address: ' . $address, $context);
+        if ($logger) {
+            $logger->debug('Geocoding address: ' . $address, $context);
+        }
         
         // Check cache first
         $cache_key = 'rdm_geocode_' . md5($address);
-        $cached = get_transient($cache_key);
-        if ($cached !== false) {
-            $logger->debug('Using cached geocoding result for: ' . $address, $context);
-            return $cached;
+        if ($use_cache) {
+            $cached = get_transient($cache_key);
+            if ($cached !== false) {
+                if ($logger) {
+                    $logger->debug('Using cached geocoding result for: ' . $address, $context);
+                }
+                return $cached;
+            }
         }
-
+        
+        // Check rate limiting
+        $rate_limit_key = 'rdm_geocode_rate_limit';
+        $current_calls = get_transient($rate_limit_key) ?: 0;
+        if ($current_calls > 40) { // Limit to 40 calls per minute
+            $error_msg = 'Rate limit exceeded for geocoding API calls';
+            if ($logger) {
+                $logger->warning($error_msg, $context);
+            }
+            // Use cached fallback or basic coordinates
+            return $this->geocode_fallback($address);
+        }
+        
         $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query(array(
             'address' => $address,
             'key' => $this->api_key
         ));
-
-        $logger->debug('Making geocoding API request to Google', $context);
         
-        $response = wp_remote_get($url, array('timeout' => 15));
-
-        if (is_wp_error($response)) {
-            $logger->error('Google Geocoding API error: ' . $response->get_error_message(), $context);
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        if ($data['status'] !== 'OK' || empty($data['results'])) {
-            if (isset($data['status'])) {
-                $logger->warning('Google Geocoding API status: ' . $data['status'] . ' for address: ' . $address, $context);
-            } else {
-                $logger->error('Invalid response from Google Geocoding API for address: ' . $address, $context);
+        for ($attempt = 1; $attempt <= $retry_count; $attempt++) {
+            if ($logger) {
+                $logger->debug("Making geocoding API request (attempt $attempt/$retry_count)", $context);
             }
-            return false;
+            
+            $response = wp_remote_get($url, array(
+                'timeout' => 15,
+                'user-agent' => 'RestroReach/' . RDM_VERSION . ' (WordPress Plugin)',
+                'headers' => array(
+                    'Accept' => 'application/json'
+                )
+            ));
+            
+            // Increment rate limit counter
+            set_transient($rate_limit_key, $current_calls + 1, 60);
+            
+            if (is_wp_error($response)) {
+                $error_msg = 'Google Geocoding API error: ' . $response->get_error_message();
+                if ($logger) {
+                    $logger->error($error_msg, $context);
+                } else {
+                    error_log('RestroReach: ' . $error_msg);
+                }
+                
+                // Don't retry on network errors
+                if ($attempt === $retry_count) {
+                    return $this->geocode_fallback($address);
+                }
+                
+                // Wait before retry
+                sleep(1);
+                continue;
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            if ($response_code !== 200) {
+                $error_msg = "Google Geocoding API returned status code: $response_code";
+                if ($logger) {
+                    $logger->warning($error_msg, $context);
+                }
+                
+                if ($response_code === 429) { // Too Many Requests
+                    // Implement exponential backoff
+                    sleep(pow(2, $attempt - 1));
+                    continue;
+                } elseif ($response_code >= 500) { // Server errors
+                    if ($attempt < $retry_count) {
+                        sleep(2);
+                        continue;
+                    }
+                }
+                
+                return $this->geocode_fallback($address);
+            }
+            
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            
+            if (!$data) {
+                $error_msg = 'Invalid JSON response from Google Geocoding API';
+                if ($logger) {
+                    $logger->error($error_msg, $context);
+                }
+                
+                if ($attempt < $retry_count) {
+                    sleep(1);
+                    continue;
+                }
+                
+                return $this->geocode_fallback($address);
+            }
+            
+            // Check API response status
+            if ($data['status'] === 'OK' && !empty($data['results'])) {
+                $result = array(
+                    'lat' => $data['results'][0]['geometry']['location']['lat'],
+                    'lng' => $data['results'][0]['geometry']['location']['lng'],
+                    'formatted_address' => $data['results'][0]['formatted_address']
+                );
+                
+                if ($logger) {
+                    $logger->debug('Successfully geocoded: ' . $result['formatted_address'], $context);
+                }
+                
+                // Cache successful result for 24 hours
+                if ($use_cache) {
+                    set_transient($cache_key, $result, DAY_IN_SECONDS);
+                }
+                
+                return $result;
+            } elseif ($data['status'] === 'OVER_QUERY_LIMIT') {
+                if ($logger) {
+                    $logger->error('Google API quota exceeded', $context);
+                }
+                // Use fallback immediately
+                return $this->geocode_fallback($address);
+            } elseif ($data['status'] === 'REQUEST_DENIED') {
+                if ($logger) {
+                    $logger->error('Google API request denied - check API key and permissions', $context);
+                }
+                return $this->geocode_fallback($address);
+            } elseif ($data['status'] === 'INVALID_REQUEST') {
+                if ($logger) {
+                    $logger->error('Invalid request to Google Geocoding API for address: ' . $address, $context);
+                }
+                return false; // Don't retry for invalid requests
+            } else {
+                // Handle other status codes (ZERO_RESULTS, etc.)
+                if ($logger) {
+                    $logger->warning('Google Geocoding API status: ' . $data['status'] . ' for address: ' . $address, $context);
+                }
+                
+                if ($attempt < $retry_count && in_array($data['status'], ['UNKNOWN_ERROR'])) {
+                    sleep(2);
+                    continue;
+                }
+                
+                // Cache failed result for 1 hour to prevent repeated requests
+                if ($use_cache) {
+                    set_transient($cache_key, false, HOUR_IN_SECONDS);
+                }
+                
+                return false;
+            }
         }
-
-        $result = array(
-            'lat' => $data['results'][0]['geometry']['location']['lat'],
-            'lng' => $data['results'][0]['geometry']['location']['lng'],
-            'formatted_address' => $data['results'][0]['formatted_address']
+        
+        // All retries exhausted
+        return $this->geocode_fallback($address);
+    }
+    
+    /**
+     * Fallback geocoding method when Google API fails
+     *
+     * @param string $address Address to geocode
+     * @return array|false Basic coordinates or false
+     */
+    private function geocode_fallback(string $address) {
+        // Try to extract coordinates from cached data or use defaults
+        $fallback_coordinates = get_option('rdm_fallback_coordinates', array());
+        
+        // Look for similar addresses in cache
+        $cache_pattern = 'rdm_geocode_*';
+        $all_transients = wp_load_alloptions();
+        
+        foreach ($all_transients as $key => $value) {
+            if (strpos($key, '_transient_rdm_geocode_') === 0 && $value !== false) {
+                $cached_data = maybe_unserialize($value);
+                if (is_array($cached_data) && isset($cached_data['formatted_address'])) {
+                    // Simple similarity check
+                    if (stripos($cached_data['formatted_address'], substr($address, 0, 20)) !== false) {
+                        error_log('RestroReach: Using similar cached address for fallback: ' . $cached_data['formatted_address']);
+                        return $cached_data;
+                    }
+                }
+            }
+        }
+        
+        // Use stored restaurant coordinates as last resort
+        $restaurant_coords = get_option('rdm_restaurant_coordinates');
+        if ($restaurant_coords && is_array($restaurant_coords)) {
+            error_log('RestroReach: Using restaurant coordinates as fallback');
+            return array(
+                'lat' => $restaurant_coords['lat'],
+                'lng' => $restaurant_coords['lng'],
+                'formatted_address' => $address
+            );
+        }
+        
+        // Ultimate fallback: default coordinates (can be configured)
+        $default_lat = get_option('rdm_default_latitude', 40.7128); // NYC
+        $default_lng = get_option('rdm_default_longitude', -74.0060);
+        
+        error_log('RestroReach: Using default coordinates as final fallback');
+        return array(
+            'lat' => floatval($default_lat),
+            'lng' => floatval($default_lng),
+            'formatted_address' => $address
         );
-
-        $logger->debug('Successfully geocoded address: ' . $address . ' -> lat=' . $result['lat'] . ', lng=' . $result['lng'], $context);
-
-        // Cache for 24 hours
-        set_transient($cache_key, $result, 24 * HOUR_IN_SECONDS);
-
-        return $result;
     }
 
     /**

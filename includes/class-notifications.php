@@ -459,16 +459,16 @@ class RDM_Notifications {
     }
 
     /**
-     * Send enhanced notification with multiple delivery methods
+     * Send enhanced notification with improved error handling
      *
      * @since 2.0.0
      * @param string $type Notification type
      * @param string $title Notification title
      * @param string $message Notification message
      * @param array $data Additional data
-     * @param array $target_roles Array of user roles to target
+     * @param array $target_roles Target user roles
      * @param bool $is_urgent Whether notification is urgent
-     * @param int|null $user_id Specific user ID (overrides target_roles)
+     * @param int|null $user_id Specific user ID
      * @return bool Success status
      */
     public function send_enhanced_notification(string $type, string $title, string $message, array $data = array(), array $target_roles = array(), bool $is_urgent = false, ?int $user_id = null): bool {
@@ -477,80 +477,112 @@ class RDM_Notifications {
             if (empty($type) || empty($title) || empty($message)) {
                 throw new Exception(__('Missing required notification parameters', 'restaurant-delivery-manager'));
             }
-
+            
+            // Sanitize inputs
+            $type = sanitize_key($type);
+            $title = sanitize_text_field($title);
+            $message = sanitize_textarea_field($message);
+            
+            // Check if notification type is supported
+            if (!isset($this->notification_types[$type])) {
+                error_log("RestroReach: Unknown notification type: $type");
+                $type = 'system_alert'; // Fallback to system alert
+            }
+            
             global $wpdb;
             
-            // Get notification configuration
-            $notification_config = $this->notification_types[$type] ?? array();
-            $is_urgent = $is_urgent || ($notification_config['urgent'] ?? false);
+            // Start transaction for consistency
+            $wpdb->query('START TRANSACTION');
             
-            // Determine target users
-            $target_users = array();
-            if ($user_id) {
-                // Validate specific user
-                if (!get_userdata($user_id)) {
-                    throw new Exception(__('Invalid user ID', 'restaurant-delivery-manager'));
-                }
-                $target_users = array($user_id);
-            } elseif (!empty($target_roles)) {
-                $target_users = $this->get_users_by_roles($target_roles);
-            }
-            
-            $success_count = 0;
-            
-            if (empty($target_users)) {
-                // General notification for all users
-                $notification_id = $this->create_notification_record(null, $type, $title, $message, $data, $is_urgent);
-                if ($notification_id) {
-                    $this->queue_notification_delivery($notification_id, null, 'browser');
-                    $success_count++;
-                }
-            } else {
-                // Send to specific users
-                foreach ($target_users as $user_id) {
-                    // Check user notification preferences
-                    if (!$this->should_send_notification($user_id, $type)) {
-                        continue;
+            try {
+                // Get notification configuration
+                $notification_config = $this->notification_types[$type] ?? array();
+                $is_urgent = $is_urgent || ($notification_config['urgent'] ?? false);
+                
+                // Determine target users with validation
+                $target_users = array();
+                if ($user_id) {
+                    // Validate specific user
+                    $user_data = get_userdata($user_id);
+                    if (!$user_data) {
+                        throw new Exception(sprintf(__('Invalid user ID: %d', 'restaurant-delivery-manager'), $user_id));
                     }
-                    
-                    $notification_id = $this->create_notification_record($user_id, $type, $title, $message, $data, $is_urgent);
+                    $target_users = array($user_id);
+                } elseif (!empty($target_roles)) {
+                    $target_users = $this->get_users_by_roles($target_roles);
+                    if (empty($target_users)) {
+                        error_log("RestroReach: No users found for roles: " . implode(', ', $target_roles));
+                    }
+                }
+                
+                $success_count = 0;
+                $total_attempts = 0;
+                
+                if (empty($target_users)) {
+                    // General notification for all users
+                    $notification_id = $this->create_notification_record(null, $type, $title, $message, $data, $is_urgent);
                     if ($notification_id) {
-                        $this->queue_multiple_delivery_methods($notification_id, $user_id, $type);
-                        $success_count++;
+                        if ($this->queue_notification_delivery($notification_id, null, 'browser')) {
+                            $success_count++;
+                        }
+                        $total_attempts++;
+                    }
+                } else {
+                    // Send to specific users
+                    foreach ($target_users as $target_user_id) {
+                        $total_attempts++;
+                        
+                        // Validate user still exists
+                        if (!get_userdata($target_user_id)) {
+                            error_log("RestroReach: Skipping notification for invalid user ID: $target_user_id");
+                            continue;
+                        }
+                        
+                        // Check user notification preferences
+                        if (!$this->should_send_notification($target_user_id, $type)) {
+                            continue;
+                        }
+                        
+                        $notification_id = $this->create_notification_record($target_user_id, $type, $title, $message, $data, $is_urgent);
+                        if ($notification_id) {
+                            if ($this->queue_multiple_delivery_methods($notification_id, $target_user_id, $type)) {
+                                $success_count++;
+                            }
+                        }
                     }
                 }
+                
+                // Add to real-time queue for immediate delivery
+                if ($success_count > 0) {
+                    $this->add_to_realtime_queue($type, $title, $message, $data, $is_urgent, $target_users);
+                }
+                
+                // Commit transaction
+                $wpdb->query('COMMIT');
+                
+                // Log notification metrics
+                $this->log_notification_metrics($type, $success_count, $total_attempts);
+                
+                return $success_count > 0;
+                
+            } catch (Exception $inner_e) {
+                // Rollback transaction on inner error
+                $wpdb->query('ROLLBACK');
+                throw $inner_e;
             }
-            
-            // Add to real-time queue for immediate delivery
-            if ($success_count > 0) {
-                $this->add_to_realtime_queue($type, $title, $message, $data, $is_urgent, $target_users);
-            }
-            
-            return $success_count > 0;
             
         } catch (Exception $e) {
             error_log('RestroReach: Enhanced notification failed - ' . $e->getMessage());
+            
+            // Attempt fallback notification
+            $this->attempt_fallback_notification($type, $title, $message, $user_id);
+            
             return false;
         }
     }
-
-    /**
-     * Send notification (legacy method - now uses enhanced notification)
-     *
-     * @since 1.0.0
-     * @param string $type Notification type
-     * @param string $title Notification title
-     * @param string $message Notification message
-     * @param array $data Additional data
-     * @return bool Success status
-     */
-    public function send_notification($type, $title, $message, $data = array()) {
-        // Use enhanced notification method for backward compatibility
-        return $this->send_enhanced_notification($type, $title, $message, $data);
-    }
     
     /**
-     * Create notification record in database
+     * Create notification record with enhanced error handling
      *
      * @since 2.0.0
      * @param int|null $user_id Target user ID
@@ -564,27 +596,40 @@ class RDM_Notifications {
     private function create_notification_record(?int $user_id, string $type, string $title, string $message, array $data, bool $is_urgent) {
         global $wpdb;
         
-        $result = $wpdb->insert(
-            $this->database->get_table_name('notifications'),
-            array(
-                'user_id' => $user_id,
-                'type' => sanitize_text_field($type),
-                'title' => sanitize_text_field($title),
-                'message' => sanitize_textarea_field($message),
-                'data' => wp_json_encode($data),
-                'is_urgent' => $is_urgent ? 1 : 0,
-                'created_at' => current_time('mysql'),
-                'is_read' => 0
-            ),
-            array('%d', '%s', '%s', '%s', '%s', '%d', '%s', '%d')
-        );
-
-        if (false === $result) {
-            error_log('RestroReach: Failed to create notification record - ' . $wpdb->last_error);
+        try {
+            // Validate data size
+            $data_json = wp_json_encode($data);
+            if (strlen($data_json) > 65535) { // TEXT field limit
+                error_log('RestroReach: Notification data too large, truncating');
+                $data = array('truncated' => true, 'original_keys' => array_keys($data));
+                $data_json = wp_json_encode($data);
+            }
+            
+            $result = $wpdb->insert(
+                $this->database->get_table_name('notifications'),
+                array(
+                    'user_id' => $user_id,
+                    'type' => $type,
+                    'title' => substr($title, 0, 255), // Ensure it fits
+                    'message' => $message,
+                    'data' => $data_json,
+                    'is_urgent' => $is_urgent ? 1 : 0,
+                    'created_at' => current_time('mysql'),
+                    'is_read' => 0
+                ),
+                array('%d', '%s', '%s', '%s', '%s', '%d', '%s', '%d')
+            );
+            
+            if (false === $result) {
+                throw new Exception('Database insert failed: ' . $wpdb->last_error);
+            }
+            
+            return $wpdb->insert_id;
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Failed to create notification record - ' . $e->getMessage());
             return false;
         }
-
-        return $wpdb->insert_id;
     }
     
     /**
@@ -628,56 +673,181 @@ class RDM_Notifications {
     }
     
     /**
-     * Queue notification for multiple delivery methods
+     * Queue notification for multiple delivery methods with error handling
      *
      * @since 2.0.0
      * @param int $notification_id Notification ID
      * @param int $user_id User ID
      * @param string $type Notification type
-     * @return void
+     * @return bool Success status
      */
-    private function queue_multiple_delivery_methods(int $notification_id, int $user_id, string $type): void {
-        $preferences = $this->get_user_notification_preferences($user_id, $type);
-        
-        if ($preferences['browser_enabled']) {
-            $this->queue_notification_delivery($notification_id, $user_id, 'browser');
-        }
-        
-        if ($preferences['email_enabled']) {
-            $this->queue_notification_delivery($notification_id, $user_id, 'email');
-        }
-        
-        if ($preferences['whatsapp_enabled']) {
-            $this->queue_notification_delivery($notification_id, $user_id, 'whatsapp');
+    private function queue_multiple_delivery_methods(int $notification_id, int $user_id, string $type): bool {
+        try {
+            $preferences = $this->get_user_notification_preferences($user_id, $type);
+            $success_count = 0;
+            $total_methods = 0;
+            
+            if ($preferences['browser_enabled']) {
+                $total_methods++;
+                if ($this->queue_notification_delivery($notification_id, $user_id, 'browser')) {
+                    $success_count++;
+                }
+            }
+            
+            if ($preferences['email_enabled']) {
+                $total_methods++;
+                if ($this->queue_notification_delivery($notification_id, $user_id, 'email')) {
+                    $success_count++;
+                }
+            }
+            
+            if ($preferences['whatsapp_enabled']) {
+                $total_methods++;
+                if ($this->queue_notification_delivery($notification_id, $user_id, 'whatsapp')) {
+                    $success_count++;
+                }
+            }
+            
+            // At least one method should succeed
+            return $success_count > 0;
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Failed to queue multiple delivery methods - ' . $e->getMessage());
+            return false;
         }
     }
     
     /**
-     * Queue notification for delivery
+     * Queue notification for delivery with retry logic
      *
      * @since 2.0.0
      * @param int $notification_id Notification ID
      * @param int|null $user_id User ID
      * @param string $delivery_method Delivery method
+     * @param int $retry_delay Delay before retry (seconds)
      * @return bool Success status
      */
-    private function queue_notification_delivery(int $notification_id, ?int $user_id, string $delivery_method): bool {
+    private function queue_notification_delivery(int $notification_id, ?int $user_id, string $delivery_method, int $retry_delay = 0): bool {
         global $wpdb;
         
-        $result = $wpdb->insert(
-            $this->database->get_table_name('notification_queue'),
-            array(
+        try {
+            // Validate delivery method
+            $allowed_methods = array('browser', 'email', 'whatsapp', 'sms');
+            if (!in_array($delivery_method, $allowed_methods)) {
+                throw new Exception("Invalid delivery method: $delivery_method");
+            }
+            
+            $scheduled_for = current_time('mysql');
+            if ($retry_delay > 0) {
+                $scheduled_for = date('Y-m-d H:i:s', strtotime($scheduled_for) + $retry_delay);
+            }
+            
+            $result = $wpdb->insert(
+                $this->database->get_table_name('notification_queue'),
+                array(
+                    'user_id' => $user_id,
+                    'notification_id' => $notification_id,
+                    'delivery_method' => $delivery_method,
+                    'status' => 'pending',
+                    'attempts' => 0,
+                    'scheduled_for' => $scheduled_for,
+                    'created_at' => current_time('mysql')
+                ),
+                array('%d', '%d', '%s', '%s', '%d', '%s', '%s')
+            );
+            
+            if (false === $result) {
+                throw new Exception('Queue insert failed: ' . $wpdb->last_error);
+            }
+            
+            return true;
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Failed to queue notification delivery - ' . $e->getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Attempt fallback notification when primary method fails
+     *
+     * @since 2.0.0
+     * @param string $type Notification type
+     * @param string $title Notification title
+     * @param string $message Notification message
+     * @param int|null $user_id Target user ID
+     * @return void
+     */
+    private function attempt_fallback_notification(string $type, string $title, string $message, ?int $user_id): void {
+        try {
+            // Store in WordPress options as emergency fallback
+            $fallback_notification = array(
+                'type' => $type,
+                'title' => $title,
+                'message' => $message,
                 'user_id' => $user_id,
-                'notification_id' => $notification_id,
-                'delivery_method' => $delivery_method,
-                'status' => 'pending',
-                'scheduled_for' => current_time('mysql'),
-                'created_at' => current_time('mysql')
-            ),
-            array('%d', '%d', '%s', '%s', '%s', '%s')
-        );
+                'timestamp' => time(),
+                'status' => 'fallback'
+            );
+            
+            $existing_fallbacks = get_option('rdm_fallback_notifications', array());
+            $existing_fallbacks[] = $fallback_notification;
+            
+            // Keep only last 20 fallback notifications
+            if (count($existing_fallbacks) > 20) {
+                $existing_fallbacks = array_slice($existing_fallbacks, -20);
+            }
+            
+            update_option('rdm_fallback_notifications', $existing_fallbacks, false);
+            
+            // Log fallback notification
+            error_log("RestroReach: Fallback notification stored - Type: $type, User: $user_id");
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Fallback notification storage failed - ' . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Log notification metrics for monitoring
+     *
+     * @since 2.0.0
+     * @param string $type Notification type
+     * @param int $success_count Successful notifications
+     * @param int $total_attempts Total attempts
+     * @return void
+     */
+    private function log_notification_metrics(string $type, int $success_count, int $total_attempts): void {
+        $metrics = get_option('rdm_notification_metrics', array());
+        $today = date('Y-m-d');
         
-        return $result !== false;
+        if (!isset($metrics[$today])) {
+            $metrics[$today] = array();
+        }
+        
+        if (!isset($metrics[$today][$type])) {
+            $metrics[$today][$type] = array(
+                'success' => 0,
+                'attempts' => 0,
+                'failures' => 0
+            );
+        }
+        
+        $metrics[$today][$type]['success'] += $success_count;
+        $metrics[$today][$type]['attempts'] += $total_attempts;
+        $metrics[$today][$type]['failures'] += ($total_attempts - $success_count);
+        
+        // Keep only last 30 days of metrics
+        if (count($metrics) > 30) {
+            $sorted_dates = array_keys($metrics);
+            sort($sorted_dates);
+            $old_dates = array_slice($sorted_dates, 0, -30);
+            foreach ($old_dates as $old_date) {
+                unset($metrics[$old_date]);
+            }
+        }
+        
+        update_option('rdm_notification_metrics', $metrics, false);
     }
     
     /**
@@ -1712,6 +1882,21 @@ class RDM_Notifications {
             )
                  ));
      }
+
+    /**
+     * Send notification (legacy method - now uses enhanced notification)
+     *
+     * @since 1.0.0
+     * @param string $type Notification type
+     * @param string $title Notification title
+     * @param string $message Notification message
+     * @param array $data Additional data
+     * @return bool Success status
+     */
+    public function send_notification($type, $title, $message, $data = array()) {
+        // Use enhanced notification method for backward compatibility
+        return $this->send_enhanced_notification($type, $title, $message, $data);
+    }
  }
  
  // Initialize the notifications system

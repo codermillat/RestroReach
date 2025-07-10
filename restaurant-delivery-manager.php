@@ -11,7 +11,7 @@
  * Plugin Name:       Restaurant Delivery Manager Professional
  * Plugin URI:         https://github.com/codermillat/restaurant-delivery-manager-professional
  * Description:       Complete restaurant delivery management system with mobile agent interface, GPS tracking, and real-time order management for WordPress/WooCommerce.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            MD MILLAT HOSEN
@@ -31,7 +31,8 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('RDM_VERSION', '1.0.0');
+define('RDM_VERSION', '1.1.0');
+define('RESTROREACH_VERSION', '1.1.0'); // User requested format
 define('RDM_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RDM_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('RDM_PLUGIN_PATH', plugin_dir_path(__FILE__));
@@ -163,6 +164,13 @@ final class RestaurantDeliveryManager {
      * @var RDM_Admin_Interface|null
      */
     public ?RDM_Admin_Interface $admin_interface = null;
+    
+    /**
+     * API endpoints instance
+     *
+     * @var RDM_API_Endpoints|null
+     */
+    public ?RDM_API_Endpoints $api_endpoints = null;
     
     /**
      * Main Restaurant Delivery Manager Instance
@@ -807,48 +815,17 @@ final class RestaurantDeliveryManager {
     }
     
     /**
-     * AJAX: Refresh dashboard data
+     * AJAX: Refresh dashboard data (delegate to admin interface)
      *
      * @return void
      */
     public function ajax_refresh_dashboard(): void {
-        // Security check
-        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm-admin-nonce')) {
-            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
-            return;
+        // Delegate to admin interface for dashboard functionality
+        if ($this->admin_interface && method_exists($this->admin_interface, 'ajax_get_dashboard_stats')) {
+            $this->admin_interface->ajax_get_dashboard_stats();
+        } else {
+            wp_send_json_error(array('message' => __('Dashboard functionality not available', 'restaurant-delivery-manager')));
         }
-        
-        // Permission check
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Insufficient permissions', 'restaurant-delivery-manager')));
-            return;
-        }
-        
-        // Get dashboard data
-        $data = array(
-            'orders_today' => 0,
-            'pending_orders' => 0,
-            'active_agents' => 0,
-            'total_revenue' => 0,
-        );
-        
-        // Only get WooCommerce data if available
-        if (rdm_is_woocommerce_active()) {
-            // Get today's orders
-            $today = date('Y-m-d');
-            $orders_today = wc_get_orders(array(
-                'status' => array('wc-processing', 'wc-preparing', 'wc-ready', 'wc-out-for-delivery', 'wc-delivered'),
-                'date_created' => $today,
-                'limit' => -1,
-            ));
-            
-            $data['orders_today'] = count($orders_today);
-            $data['total_revenue'] = array_sum(array_map(function($order) {
-                return $order->get_total();
-            }, $orders_today));
-        }
-        
-        wp_send_json_success($data);
     }
     
     /**
