@@ -368,6 +368,191 @@ class RDM_Payments {
         return false;
     }
 
+    /**
+     * Get payment statistics for a given date range
+     *
+     * @since 1.0.0
+     * @param array $filters Date and filter options
+     * @return array Payment statistics
+     */
+    public function get_payment_statistics(array $filters = array()): array {
+        global $wpdb;
+        
+        // Default filters
+        $defaults = array(
+            'date_from' => date('Y-m-d', strtotime('-30 days')),
+            'date_to' => date('Y-m-d'),
+            'agent_id' => null,
+            'status' => null,
+            'payment_method' => 'cod'
+        );
+        
+        $filters = wp_parse_args($filters, $defaults);
+        
+        // Sanitize inputs
+        $date_from = sanitize_text_field($filters['date_from']);
+        $date_to = sanitize_text_field($filters['date_to']);
+        $agent_id = $filters['agent_id'] ? absint($filters['agent_id']) : null;
+        $status = $filters['status'] ? sanitize_text_field($filters['status']) : null;
+        $payment_method = sanitize_text_field($filters['payment_method']);
+        
+        try {
+            $payment_table = $this->database->get_table_name('payment_transactions');
+            
+            // Build base query
+            $where_conditions = array();
+            $where_values = array();
+            
+            // Date range filter
+            $where_conditions[] = "DATE(created_at) >= %s";
+            $where_values[] = $date_from;
+            
+            $where_conditions[] = "DATE(created_at) <= %s";
+            $where_values[] = $date_to;
+            
+            // Payment method filter
+            $where_conditions[] = "payment_type = %s";
+            $where_values[] = $payment_method;
+            
+            // Agent filter
+            if ($agent_id) {
+                $where_conditions[] = "agent_id = %d";
+                $where_values[] = $agent_id;
+            }
+            
+            // Status filter
+            if ($status) {
+                $where_conditions[] = "status = %s";
+                $where_values[] = $status;
+            }
+            
+            $where_clause = implode(' AND ', $where_conditions);
+            
+            // Get summary statistics
+            $summary_query = "
+                SELECT 
+                    COUNT(*) as total_transactions,
+                    COUNT(CASE WHEN status = 'collected' THEN 1 END) as collected_count,
+                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+                    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count,
+                    COALESCE(SUM(CASE WHEN status = 'collected' THEN amount ELSE 0 END), 0) as total_collected,
+                    COALESCE(SUM(CASE WHEN status = 'collected' THEN collected_amount ELSE 0 END), 0) as total_received,
+                    COALESCE(SUM(CASE WHEN status = 'collected' THEN change_amount ELSE 0 END), 0) as total_change,
+                    COALESCE(AVG(CASE WHEN status = 'collected' THEN amount ELSE NULL END), 0) as avg_order_value,
+                    COALESCE(MAX(amount), 0) as highest_order,
+                    COALESCE(MIN(CASE WHEN amount > 0 THEN amount ELSE NULL END), 0) as lowest_order
+                FROM {$payment_table}
+                WHERE {$where_clause}
+            ";
+            
+            $summary = $wpdb->get_row($wpdb->prepare($summary_query, ...$where_values));
+            
+            // Get daily breakdown
+            $daily_query = "
+                SELECT 
+                    DATE(created_at) as date,
+                    COUNT(*) as transactions,
+                    COUNT(CASE WHEN status = 'collected' THEN 1 END) as collected,
+                    COALESCE(SUM(CASE WHEN status = 'collected' THEN amount ELSE 0 END), 0) as total_amount,
+                    COALESCE(SUM(CASE WHEN status = 'collected' THEN change_amount ELSE 0 END), 0) as total_change
+                FROM {$payment_table}
+                WHERE {$where_clause}
+                GROUP BY DATE(created_at)
+                ORDER BY DATE(created_at) DESC
+                LIMIT 30
+            ";
+            
+            $daily_breakdown = $wpdb->get_results($wpdb->prepare($daily_query, ...$where_values));
+            
+            // Get agent breakdown if not filtering by specific agent
+            $agent_breakdown = array();
+            if (!$agent_id) {
+                $agent_query = "
+                    SELECT 
+                        pt.agent_id,
+                        u.display_name as agent_name,
+                        COUNT(*) as transactions,
+                        COUNT(CASE WHEN pt.status = 'collected' THEN 1 END) as collected,
+                        COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.amount ELSE 0 END), 0) as total_amount,
+                        COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.change_amount ELSE 0 END), 0) as total_change
+                    FROM {$payment_table} pt
+                    LEFT JOIN {$this->database->get_table_name('delivery_agents')} da ON pt.agent_id = da.id
+                    LEFT JOIN {$wpdb->users} u ON da.user_id = u.ID
+                    WHERE {$where_clause}
+                    GROUP BY pt.agent_id, u.display_name
+                    ORDER BY total_amount DESC
+                ";
+                
+                $agent_breakdown = $wpdb->get_results($wpdb->prepare($agent_query, ...$where_values));
+            }
+            
+            // Calculate derived metrics
+            $collection_rate = $summary->total_transactions > 0 ? 
+                round(($summary->collected_count / $summary->total_transactions) * 100, 2) : 0;
+            
+            $variance_amount = $summary->total_received - $summary->total_collected;
+            $variance_percentage = $summary->total_collected > 0 ? 
+                round(($variance_amount / $summary->total_collected) * 100, 2) : 0;
+            
+            return array(
+                'summary' => array(
+                    'total_transactions' => intval($summary->total_transactions),
+                    'collected_count' => intval($summary->collected_count),
+                    'pending_count' => intval($summary->pending_count),
+                    'failed_count' => intval($summary->failed_count),
+                    'total_collected' => floatval($summary->total_collected),
+                    'total_received' => floatval($summary->total_received),
+                    'total_change' => floatval($summary->total_change),
+                    'avg_order_value' => floatval($summary->avg_order_value),
+                    'highest_order' => floatval($summary->highest_order),
+                    'lowest_order' => floatval($summary->lowest_order),
+                    'collection_rate' => $collection_rate,
+                    'variance_amount' => $variance_amount,
+                    'variance_percentage' => $variance_percentage
+                ),
+                'daily_breakdown' => $daily_breakdown ?: array(),
+                'agent_breakdown' => $agent_breakdown ?: array(),
+                'filters_applied' => $filters,
+                'date_range' => array(
+                    'from' => $date_from,
+                    'to' => $date_to,
+                    'days' => (strtotime($date_to) - strtotime($date_from)) / (24 * 60 * 60) + 1
+                )
+            );
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Payment statistics error - ' . $e->getMessage());
+            
+            // Return empty statistics on error
+            return array(
+                'summary' => array(
+                    'total_transactions' => 0,
+                    'collected_count' => 0,
+                    'pending_count' => 0,
+                    'failed_count' => 0,
+                    'total_collected' => 0,
+                    'total_received' => 0,
+                    'total_change' => 0,
+                    'avg_order_value' => 0,
+                    'highest_order' => 0,
+                    'lowest_order' => 0,
+                    'collection_rate' => 0,
+                    'variance_amount' => 0,
+                    'variance_percentage' => 0
+                ),
+                'daily_breakdown' => array(),
+                'agent_breakdown' => array(),
+                'filters_applied' => $filters,
+                'date_range' => array(
+                    'from' => $date_from,
+                    'to' => $date_to,
+                    'days' => 1
+                ),
+                'error' => $e->getMessage()
+            );
+        }
+    }
+
     // ========================================
     // COD Payment Collection Methods
     // ========================================

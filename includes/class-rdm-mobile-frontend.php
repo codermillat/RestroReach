@@ -39,6 +39,10 @@ class RDM_Mobile_Frontend {
         add_action('template_redirect', array($this, 'template_loader'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_assets'));
         add_action('wp_head', array($this, 'add_pwa_meta_tags'));
+        
+        // Flush rewrite rules if needed
+        add_action('init', array($this, 'check_rewrite_rules'), 20);
+        
         // AJAX handlers
         add_action('wp_ajax_nopriv_rdm_agent_login', array($this, 'ajax_agent_login'));
         add_action('wp_ajax_rdm_get_agent_orders', array($this, 'ajax_get_agent_orders'));
@@ -50,6 +54,20 @@ class RDM_Mobile_Frontend {
         add_action('wp_ajax_rdm_update_agent_location', array($this, 'ajax_update_agent_location'));
         add_action('wp_ajax_rdm_get_order_details', array($this, 'ajax_get_order_details'));
     }
+    
+    /**
+     * Check if rewrite rules need to be flushed
+     */
+    public function check_rewrite_rules() {
+        $rules_version = get_option('rdm_rewrite_rules_version', '0');
+        $current_version = '1.0.1'; // Increment this when rules change
+        
+        if ($rules_version !== $current_version) {
+            flush_rewrite_rules(false);
+            update_option('rdm_rewrite_rules_version', $current_version);
+            error_log('RestroReach: Rewrite rules flushed for mobile agent routes');
+        }
+    }
 
     /**
      * Add rewrite rules for mobile agent pages
@@ -57,6 +75,7 @@ class RDM_Mobile_Frontend {
     public function add_rewrite_rules() {
         add_rewrite_rule('^delivery-agent/login/?$', 'index.php?rdm_agent_page=login', 'top');
         add_rewrite_rule('^delivery-agent/dashboard/?$', 'index.php?rdm_agent_page=dashboard', 'top');
+        add_rewrite_rule('^delivery-agent/?$', 'index.php?rdm_agent_page=login', 'top'); // Default to login
     }
 
     /**
