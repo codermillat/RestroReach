@@ -843,12 +843,9 @@ class RDM_Google_Maps {
         $locations = array();
 
         if ($order_id > 0) {
-            // Get specific agent for this order
-            $agent_id = $wpdb->get_var($wpdb->prepare(
-                "SELECT meta_value FROM {$wpdb->postmeta} 
-                WHERE post_id = %d AND meta_key = '_rdm_assigned_agent'",
-                $order_id
-            ));
+            // Get specific agent for this order - HPOS compatible
+            $order = wc_get_order($order_id);
+            $agent_id = $order ? $order->get_meta('_rdm_assigned_agent') : null;
 
             if ($agent_id) {
                 $location = RDM_GPS_Tracking::get_latest_agent_location($agent_id);
@@ -1219,6 +1216,8 @@ class RDM_Google_Maps {
         $start_date = date('Y-m-d H:i:s', strtotime("-{$date_range} days"));
 
         // Get completed orders with delivery coordinates
+        // TODO: This query needs HPOS compatibility update for WooCommerce custom order tables
+        // For now, this works with traditional orders table or when HPOS compatibility mode is enabled
         $query = $wpdb->prepare(
             "SELECT pm.meta_value as coordinates, COUNT(*) as delivery_count
              FROM {$wpdb->postmeta} pm

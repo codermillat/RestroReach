@@ -1264,6 +1264,14 @@ class RDM_Analytics {
             return 0;
         }
         
+        // Check if HPOS is enabled - if so, use WooCommerce order query API
+        if (class_exists('\Automattic\WooCommerce\Utilities\OrderUtil') && 
+            method_exists('\Automattic\WooCommerce\Utilities\OrderUtil', 'custom_orders_table_usage_is_enabled') && 
+            \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+            // HPOS is enabled - use WooCommerce API instead of direct queries
+            return $this->get_repeat_customers_count_hpos($date_range);
+        }
+        
         global $wpdb;
         
         $repeat_customers = $wpdb->get_var($wpdb->prepare("
@@ -1289,6 +1297,59 @@ class RDM_Analytics {
         ", $date_range['start'], $date_range['end']));
         
         return intval($repeat_customers);
+    }
+    
+    /**
+     * Get repeat customers count using HPOS-compatible queries
+     *
+     * @param array $date_range Date range for analysis
+     * @return int Number of repeat customers
+     */
+    private function get_repeat_customers_count_hpos(array $date_range): int {
+        // For HPOS compatibility, use WooCommerce order query API instead of direct database queries
+        // This is a safer approach when custom order tables are enabled
+        
+        $orders = wc_get_orders(array(
+            'status' => array('wc-completed', 'wc-delivered'),
+            'date_created' => $date_range['start'] . '...' . $date_range['end'],
+            'limit' => -1, // Get all orders
+            'return' => 'ids'
+        ));
+        
+        if (empty($orders)) {
+            return 0;
+        }
+        
+        $customer_orders = array();
+        
+        foreach ($orders as $order_id) {
+            $order = wc_get_order($order_id);
+            if (!$order) continue;
+            
+            // Get customer identifier (user ID or email)
+            $customer_id = $order->get_customer_id();
+            if (empty($customer_id)) {
+                $customer_id = $order->get_billing_email();
+                if (empty($customer_id)) {
+                    continue; // Skip orders without customer info
+                }
+            }
+            
+            if (!isset($customer_orders[$customer_id])) {
+                $customer_orders[$customer_id] = 0;
+            }
+            $customer_orders[$customer_id]++;
+        }
+        
+        // Count customers with more than one order
+        $repeat_customers = 0;
+        foreach ($customer_orders as $order_count) {
+            if ($order_count > 1) {
+                $repeat_customers++;
+            }
+        }
+        
+        return $repeat_customers;
     }
     
     /**
