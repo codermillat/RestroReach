@@ -350,18 +350,33 @@ class RDM_User_Roles {
      * @return void
      */
     public function handle_user_registration(int $user_id): void {
+        // Only process if we're in admin context with proper permissions
+        if (!is_admin() || !current_user_can('create_users')) {
+            return;
+        }
+        
+        // Verify nonce if it's provided (for admin registration forms)
+        if (isset($_POST['_wpnonce']) && !wp_verify_nonce($_POST['_wpnonce'], 'create-user')) {
+            return;
+        }
+        
         // Check if user is being registered as delivery agent
         if (isset($_POST['rdm_user_role']) && $_POST['rdm_user_role'] === 'delivery_agent') {
-            $user = new WP_User($user_id);
-            $user->set_role('delivery_agent');
+            // Sanitize the role value
+            $role = sanitize_text_field($_POST['rdm_user_role']);
             
-            // Create delivery agent record
-            if (isset($_POST['rdm_phone'])) {
-                $phone = sanitize_text_field($_POST['rdm_phone']);
-                $vehicle_type = isset($_POST['rdm_vehicle_type']) ? sanitize_text_field($_POST['rdm_vehicle_type']) : 'bike';
+            if ($role === 'delivery_agent') {
+                $user = new WP_User($user_id);
+                $user->set_role('delivery_agent');
                 
-                $database = RDM_Database::instance();
-                $database->create_agent($user_id, $phone, $vehicle_type);
+                // Create delivery agent record
+                if (isset($_POST['rdm_phone'])) {
+                    $phone = sanitize_text_field($_POST['rdm_phone']);
+                    $vehicle_type = isset($_POST['rdm_vehicle_type']) ? sanitize_text_field($_POST['rdm_vehicle_type']) : 'bike';
+                    
+                    $database = RDM_Database::instance();
+                    $database->create_agent($user_id, $phone, $vehicle_type);
+                }
             }
         }
     }
