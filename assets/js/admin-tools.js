@@ -207,6 +207,116 @@
                 }
             });
         });
+        
+        // Initialize user roles
+        $('#rr-initialize-user-roles').on('click', function() {
+            var $button = $(this);
+            var $results = $('#rr-user-setup-results');
+            var $content = $results.find('.rr-results-content');
+            
+            $button.prop('disabled', true).text('Initializing...');
+            
+            $.ajax({
+                url: rrAdminTools.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'rdm_initialize_user_roles',
+                    nonce: rrAdminTools.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $content.html('<div class="rr-success-message">' + response.data.message + '</div>');
+                        $results.slideDown();
+                    } else {
+                        alert(response.data.message || 'Failed to initialize user roles');
+                    }
+                },
+                error: function() {
+                    alert('Error initializing user roles');
+                },
+                complete: function() {
+                    $button.prop('disabled', false).text('Initialize User Roles');
+                }
+            });
+        });
+        
+        // Create test agent
+        $('#rr-create-test-agent').on('click', function() {
+            var $button = $(this);
+            var $results = $('#rr-user-setup-results');
+            var $content = $results.find('.rr-results-content');
+            
+            $button.prop('disabled', true).text('Creating...');
+            
+            $.ajax({
+                url: rrAdminTools.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'rdm_create_test_agent',
+                    nonce: rrAdminTools.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        var html = '<div class="rr-success-message">' + response.data.message + '</div>';
+                        html += '<div class="rr-test-agent-info">';
+                        html += '<h4>Test Agent Credentials:</h4>';
+                        html += '<p><strong>Username:</strong> ' + response.data.username + '</p>';
+                        html += '<p><strong>Email:</strong> ' + response.data.email + '</p>';
+                        html += '<p><strong>Password:</strong> ' + response.data.password + '</p>';
+                        html += '<p><strong>Login URL:</strong> <a href="' + response.data.login_url + '" target="_blank">' + response.data.login_url + '</a></p>';
+                        html += '</div>';
+                        $content.html(html);
+                        $results.slideDown();
+                    } else {
+                        alert(response.data.message || 'Failed to create test agent');
+                    }
+                },
+                error: function() {
+                    alert('Error creating test agent');
+                },
+                complete: function() {
+                    $button.prop('disabled', false).text('Create Test Agent');
+                }
+            });
+        });
+
+        // Create missing agent records
+        $('#rdm-create-missing-agents').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            if (!confirm('This will create missing agent records for users with delivery_agent role. Continue?')) {
+                return;
+            }
+            
+            $button.prop('disabled', true).text('Creating...');
+            
+            $.ajax({
+                url: rdmAdminTools.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'rdm_create_missing_agents',
+                    nonce: rdmAdminTools.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        showNotice(response.data.message, 'success');
+                        if (response.data.created_count > 0) {
+                            // Refresh the page to show updated agent list
+                            setTimeout(() => location.reload(), 2000);
+                        }
+                    } else {
+                        showNotice(response.data.message || 'Failed to create agent records', 'error');
+                    }
+                },
+                error: function() {
+                    showNotice('Network error occurred', 'error');
+                },
+                complete: function() {
+                    $button.prop('disabled', false).text(originalText);
+                }
+            });
+        });
     });
     
     /**

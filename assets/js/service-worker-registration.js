@@ -24,7 +24,7 @@
             serviceWorkerUrl.searchParams.set('pluginUrl', rdmAgent.pluginUrl);
             
             const registration = await navigator.serviceWorker.register(serviceWorkerUrl.toString(), {
-                scope: '/'
+                scope: '/delivery-agent/'
             });
 
             console.log('RestroReach: Service Worker registered successfully', registration);

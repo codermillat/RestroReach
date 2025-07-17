@@ -1387,4 +1387,142 @@ class RDM_Google_Maps {
         
         return null;
     }
+
+    /**
+     * Batch geocode multiple addresses with caching optimization
+     *
+     * @since 1.0.0
+     * @param array $addresses Array of addresses to geocode
+     * @param bool $use_cache Whether to use caching (default: true)
+     * @param int $batch_size Maximum addresses per batch (default: 10)
+     * @return array Associative array of address => coordinates results
+     */
+    public static function batch_geocode_addresses(array $addresses, bool $use_cache = true, int $batch_size = 10): array {
+        $logger = wc_get_logger();
+        $context = ['source' => 'rdm-google-maps-batch'];
+        
+        $results = array();
+        $uncached_addresses = array();
+        
+        // First, check cache for all addresses
+        if ($use_cache) {
+            foreach ($addresses as $address) {
+                $cache_key = 'rdm_geocode_' . md5($address);
+                $cached_result = get_transient($cache_key);
+                
+                if ($cached_result !== false) {
+                    $results[$address] = $cached_result;
+                    $logger->debug('Using cached geocoding result for: ' . $address, $context);
+                } else {
+                    $uncached_addresses[] = $address;
+                }
+            }
+        } else {
+            $uncached_addresses = $addresses;
+        }
+        
+        // Process uncached addresses in batches
+        if (!empty($uncached_addresses)) {
+            $batches = array_chunk($uncached_addresses, $batch_size);
+            
+            foreach ($batches as $batch_index => $batch) {
+                $logger->debug('Processing geocoding batch ' . ($batch_index + 1) . ' of ' . count($batches), $context);
+                
+                foreach ($batch as $address) {
+                    $geocoded = self::geocode_address_static($address);
+                    $results[$address] = $geocoded;
+                    
+                    // Cache the result for 24 hours
+                    if ($use_cache) {
+                        $cache_key = 'rdm_geocode_' . md5($address);
+                        set_transient($cache_key, $geocoded, DAY_IN_SECONDS);
+                    }
+                    
+                    // Add small delay between requests to respect API rate limits
+                    usleep(100000); // 100ms delay
+                }
+                
+                // Longer delay between batches
+                if ($batch_index < count($batches) - 1) {
+                    sleep(1); // 1 second delay between batches
+                }
+            }
+        }
+        
+        $logger->info('Batch geocoding completed: ' . count($addresses) . ' addresses processed', $context);
+        
+        return $results;
+    }
+
+    /**
+     * Preload geocoding cache for common delivery areas
+     *
+     * @since 1.0.0
+     * @param array $delivery_areas Array of delivery area addresses
+     * @return array Results summary
+     */
+    public static function preload_delivery_area_cache(array $delivery_areas): array {
+        $logger = wc_get_logger();
+        $context = ['source' => 'rdm-google-maps-preload'];
+        
+        $logger->info('Starting delivery area cache preload for ' . count($delivery_areas) . ' areas', $context);
+        
+        $results = self::batch_geocode_addresses($delivery_areas, true, 5); // Smaller batches for preloading
+        
+        $success_count = 0;
+        $failed_count = 0;
+        
+        foreach ($results as $address => $result) {
+            if ($result && isset($result['lat'], $result['lng'])) {
+                $success_count++;
+                $logger->debug('Successfully preloaded cache for: ' . $address, $context);
+            } else {
+                $failed_count++;
+                $logger->warning('Failed to preload cache for: ' . $address, $context);
+            }
+        }
+        
+        $summary = array(
+            'total_processed' => count($delivery_areas),
+            'successful' => $success_count,
+            'failed' => $failed_count,
+            'cache_hits' => count($delivery_areas) - count(array_filter($delivery_areas, function($address) {
+                return get_transient('rdm_geocode_' . md5($address)) === false;
+            }))
+        );
+        
+        $logger->info('Delivery area cache preload completed', array_merge($context, $summary));
+        
+        return $summary;
+    }
+
+    /**
+     * Clear geocoding cache for specific addresses or all
+     *
+     * @since 1.0.0
+     * @param array $addresses Specific addresses to clear, empty array to clear all
+     * @return int Number of cache entries cleared
+     */
+    public static function clear_geocoding_cache(array $addresses = array()): int {
+        global $wpdb;
+        
+        if (empty($addresses)) {
+            // Clear all geocoding cache entries
+            $deleted = $wpdb->query(
+                "DELETE FROM {$wpdb->options} 
+                 WHERE option_name LIKE '_transient_rdm_geocode_%' 
+                 OR option_name LIKE '_transient_timeout_rdm_geocode_%'"
+            );
+        } else {
+            $deleted = 0;
+            foreach ($addresses as $address) {
+                $cache_key = 'rdm_geocode_' . md5($address);
+                if (delete_transient($cache_key)) {
+                    $deleted++;
+                }
+            }
+        }
+        
+        return intval($deleted / 2); // Divide by 2 because WordPress creates two entries per transient
+    }
 }

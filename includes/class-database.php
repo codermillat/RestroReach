@@ -2070,7 +2070,7 @@ class RDM_Database {
         }
         
         // Test query 2: Get agent performance
-        $agents = $wpdb->get_col("SELECT id FROM {$this->tables['delivery_agents']} LIMIT 1");
+        $agents = $wpdb->get_col($wpdb->prepare("SELECT id FROM {$this->tables['delivery_agents']} LIMIT %d", 1));
         if (!empty($agents)) {
             $start_time = microtime(true);
             $this->get_agent_performance($agents[0], 30);
@@ -2358,7 +2358,7 @@ class RDM_Database {
         
         // Get table statistics
         foreach ($this->tables as $table_key => $table_name) {
-            $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+            $count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM `%1s`", $table_name));
             $stats['tables'][$table_key] = intval($count);
         }
         

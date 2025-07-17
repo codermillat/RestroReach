@@ -73,6 +73,9 @@ class RDM_Admin_Tools {
         add_action('wp_ajax_rdm_repair_database', array($this, 'ajax_repair_database'));
         add_action('wp_ajax_rdm_run_health_check', array($this, 'ajax_run_health_check'));
         add_action('wp_ajax_rdm_cleanup_data', array($this, 'ajax_cleanup_data'));
+        add_action('wp_ajax_rdm_initialize_user_roles', array($this, 'ajax_initialize_user_roles'));
+        add_action('wp_ajax_rdm_create_test_agent', array($this, 'ajax_create_test_agent'));
+        add_action('wp_ajax_rdm_create_missing_agents', array($this, 'ajax_create_missing_agents'));
         
         // Enqueue scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
@@ -367,6 +370,36 @@ class RDM_Admin_Tools {
                     <?php else: ?>
                     <p><?php esc_html_e('No database logs found.', 'restaurant-delivery-manager'); ?></p>
                     <?php endif; ?>
+                </div>
+                
+                <!-- User Setup Tools -->
+                <div class="rr-card">
+                    <h2><?php esc_html_e('User Setup Tools', 'restaurant-delivery-manager'); ?></h2>
+                    
+                    <p><?php esc_html_e('Initialize user roles and create test accounts for development and testing.', 'restaurant-delivery-manager'); ?></p>
+                    
+                    <div class="rr-user-setup-actions">
+                        <div class="rr-action-group">
+                            <h3><?php esc_html_e('Initialize User Roles', 'restaurant-delivery-manager'); ?></h3>
+                            <p><?php esc_html_e('Create the delivery agent and restaurant manager user roles with proper capabilities.', 'restaurant-delivery-manager'); ?></p>
+                            <button type="button" class="button button-secondary" id="rr-initialize-user-roles">
+                                <?php esc_html_e('Initialize User Roles', 'restaurant-delivery-manager'); ?>
+                            </button>
+                        </div>
+                        
+                        <div class="rr-action-group">
+                            <h3><?php esc_html_e('Create Test Agent', 'restaurant-delivery-manager'); ?></h3>
+                            <p><?php esc_html_e('Create a test delivery agent account for testing the mobile interface.', 'restaurant-delivery-manager'); ?></p>
+                            <button type="button" class="button button-secondary" id="rr-create-test-agent">
+                                <?php esc_html_e('Create Test Agent', 'restaurant-delivery-manager'); ?>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="rr-user-setup-results" class="rr-results-container" style="display: none;">
+                        <h3><?php esc_html_e('User Setup Results', 'restaurant-delivery-manager'); ?></h3>
+                        <div class="rr-results-content"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -723,5 +756,162 @@ class RDM_Admin_Tools {
                 $days
             ),
         ));
+    }
+    
+    /**
+     * AJAX handler for initializing user roles
+     *
+     * @return void
+     */
+    public function ajax_initialize_user_roles(): void {
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_admin_tools')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+        }
+        
+        // Check permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'restaurant-delivery-manager')));
+        }
+        
+        try {
+            // Initialize user roles
+            $user_roles = RDM_User_Roles::instance();
+            $user_roles->create_roles();
+            
+            wp_send_json_success(array(
+                'message' => __('User roles created successfully', 'restaurant-delivery-manager'),
+                'roles_created' => array('restaurant_manager', 'delivery_agent')
+            ));
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: User roles initialization failed - ' . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    /**
+     * AJAX handler for creating a test delivery agent
+     *
+     * @return void
+     */
+    public function ajax_create_test_agent(): void {
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_admin_tools')) {
+            wp_send_json_error(array('message' => __('Security check failed', 'restaurant-delivery-manager')));
+        }
+        
+        // Check permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'restaurant-delivery-manager')));
+        }
+        
+        try {
+            $username = 'agent1';
+            $email = 'agent1@example.com';
+            $password = 'password123';
+            
+            // Check if user already exists
+            $existing_user = get_user_by('email', $email);
+            if ($existing_user) {
+                wp_send_json_success(array(
+                    'message' => __('Test agent already exists', 'restaurant-delivery-manager'),
+                    'username' => $username,
+                    'email' => $email,
+                    'password' => $password,
+                    'note' => __('User already exists', 'restaurant-delivery-manager')
+                ));
+                return;
+            }
+            
+            // Create user
+            $user_id = wp_create_user($username, $password, $email);
+            if (is_wp_error($user_id)) {
+                throw new Exception($user_id->get_error_message());
+            }
+            
+            // Set user role to delivery agent
+            $user = new WP_User($user_id);
+            $user->set_role('delivery_agent');
+            
+            // Add user metadata
+            update_user_meta($user_id, 'first_name', 'Test');
+            update_user_meta($user_id, 'last_name', 'Agent');
+            update_user_meta($user_id, 'billing_phone', '+1-555-123-0001');
+            
+            // Create agent record in database
+            $agent_id = $this->database->create_agent($user_id, '+1-555-123-0001', 'bike');
+            
+            wp_send_json_success(array(
+                'message' => __('Test delivery agent created successfully', 'restaurant-delivery-manager'),
+                'user_id' => $user_id,
+                'agent_id' => $agent_id,
+                'username' => $username,
+                'email' => $email,
+                'password' => $password,
+                'login_url' => home_url('/delivery-agent/login')
+            ));
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Test agent creation failed - ' . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+
+    /**
+     * AJAX: Create missing agent records
+     */
+    public function ajax_create_missing_agents() {
+        // Security check
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'rdm_admin_tools')) {
+            wp_send_json_error(array('message' => __('Security check failed.', 'restaurant-delivery-manager')));
+        }
+        
+        // Capability check
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'restaurant-delivery-manager')));
+        }
+        
+        try {
+            $database = RDM_Database::instance();
+            $created_count = 0;
+            
+            // Get all users with delivery_agent role
+            $delivery_users = get_users(array(
+                'role' => 'delivery_agent',
+                'fields' => array('ID', 'display_name', 'user_email')
+            ));
+            
+            foreach ($delivery_users as $user) {
+                // Check if agent record exists
+                $existing_agent = $database->get_agent_by_user_id($user->ID);
+                
+                if (!$existing_agent) {
+                    // Create agent record with default values
+                    $phone = get_user_meta($user->ID, 'rdm_agent_phone', true) ?: '';
+                    $vehicle_type = get_user_meta($user->ID, 'rdm_vehicle_type', true) ?: 'bike';
+                    
+                    if (empty($phone)) {
+                        $phone = '000-000-0000'; // Default placeholder
+                    }
+                    
+                    $agent_id = $database->create_agent($user->ID, $phone, $vehicle_type);
+                    
+                    if ($agent_id) {
+                        $created_count++;
+                        error_log("RestroReach: Created agent record for user {$user->display_name} (ID: {$user->ID})");
+                    }
+                }
+            }
+            
+            wp_send_json_success(array(
+                'message' => sprintf(__('%d missing agent records created successfully.', 'restaurant-delivery-manager'), $created_count),
+                'created_count' => $created_count
+            ));
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Error creating missing agent records - ' . $e->getMessage());
+            wp_send_json_error(array('message' => __('Error creating agent records: ', 'restaurant-delivery-manager') . $e->getMessage()));
+        }
     }
 } 

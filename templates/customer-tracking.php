@@ -152,8 +152,10 @@ $timeline = $tracking_data['status_timeline'];
                     <?php echo esc_html__('Contact our support team if you have any questions about your order.', 'restaurant-delivery-manager'); ?>
                 </div>
                 <?php 
-                $support_phone = get_option('rdm_support_phone', get_option('woocommerce_store_phone', ''));
-                $support_email = get_option('rdm_support_email', get_option('admin_email', ''));
+                        // Get support contact information from plugin settings with fallbacks
+        $plugin_options = get_option('rdm_plugin_options', array());
+        $support_phone = isset($plugin_options['rdm_support_phone']) ? $plugin_options['rdm_support_phone'] : get_option('woocommerce_store_phone', '');
+        $support_email = isset($plugin_options['rdm_support_email']) ? $plugin_options['rdm_support_email'] : get_option('admin_email', '');
                 ?>
                 <?php if ($support_phone) : ?>
                     <div class="rdm-support-contact">

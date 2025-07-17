@@ -17,6 +17,7 @@ class RDM_Database_Tools {
         add_action('admin_menu', array(__CLASS__, 'add_admin_menu'));
         add_action('wp_ajax_rdm_recreate_tables', array(__CLASS__, 'ajax_recreate_tables'));
         add_action('wp_ajax_rdm_check_table_status', array(__CLASS__, 'ajax_check_table_status'));
+        add_action('wp_ajax_rdm_create_missing_agents', array(__CLASS__, 'ajax_create_missing_agents'));
     }
 
     /**
@@ -80,6 +81,18 @@ class RDM_Database_Tools {
                 
                 <div id="rdm-recreate-results" style="margin-top: 20px;"></div>
             </div>
+            
+            <div class="card">
+                <h2><?php esc_html_e('Agent Records', 'restaurant-delivery-manager'); ?></h2>
+                <p><?php esc_html_e('Create missing agent records for users with delivery_agent role.', 'restaurant-delivery-manager'); ?></p>
+                <p><?php esc_html_e('This will create database records for delivery agents who have the correct user role but are missing from the agents table.', 'restaurant-delivery-manager'); ?></p>
+                
+                <button type="button" id="rdm-create-missing-agents" class="button button-secondary">
+                    <?php esc_html_e('Create Missing Agent Records', 'restaurant-delivery-manager'); ?>
+                </button>
+                
+                <div id="rdm-agent-results" style="margin-top: 20px;"></div>
+            </div>
         </div>
         
         <script type="text/javascript">
@@ -113,6 +126,31 @@ class RDM_Database_Tools {
                 }).fail(function() {
                     $('#rdm-recreate-results').html('<div class="notice notice-error"><p><?php echo esc_js(__('AJAX request failed', 'restaurant-delivery-manager')); ?></p></div>');
                     $('#rdm-recreate-tables').prop('disabled', false).text('<?php echo esc_js(__('Recreate All Tables', 'restaurant-delivery-manager')); ?>');
+                });
+            });
+            
+            // Create missing agents button
+            $('#rdm-create-missing-agents').on('click', function() {
+                if (!confirm('<?php echo esc_js(__('This will create missing agent records for users with delivery_agent role. Continue?', 'restaurant-delivery-manager')); ?>')) {
+                    return;
+                }
+                
+                $(this).prop('disabled', true).text('<?php echo esc_js(__('Creating...', 'restaurant-delivery-manager')); ?>');
+                $('#rdm-agent-results').html('<p><?php echo esc_js(__('Creating agent records...', 'restaurant-delivery-manager')); ?></p>');
+                
+                $.post(ajaxurl, {
+                    action: 'rdm_create_missing_agents',
+                    nonce: '<?php echo wp_create_nonce('rdm_database_tools'); ?>'
+                }, function(response) {
+                    if (response.success) {
+                        $('#rdm-agent-results').html('<div class="notice notice-success"><p>' + response.data.message + '</p></div>');
+                    } else {
+                        $('#rdm-agent-results').html('<div class="notice notice-error"><p>' + response.data + '</p></div>');
+                    }
+                    $('#rdm-create-missing-agents').prop('disabled', false).text('<?php echo esc_js(__('Create Missing Agent Records', 'restaurant-delivery-manager')); ?>');
+                }).fail(function() {
+                    $('#rdm-agent-results').html('<div class="notice notice-error"><p><?php echo esc_js(__('AJAX request failed', 'restaurant-delivery-manager')); ?></p></div>');
+                    $('#rdm-create-missing-agents').prop('disabled', false).text('<?php echo esc_js(__('Create Missing Agent Records', 'restaurant-delivery-manager')); ?>');
                 });
             });
             
@@ -205,6 +243,63 @@ class RDM_Database_Tools {
             ));
         } catch (Exception $e) {
             wp_send_json_error(__('Error: ', 'restaurant-delivery-manager') . $e->getMessage());
+        }
+    }
+    
+    /**
+     * AJAX handler for creating missing agent records
+     */
+    public static function ajax_create_missing_agents() {
+        check_ajax_referer('rdm_database_tools', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Permission denied', 'restaurant-delivery-manager'));
+        }
+        
+        if (!class_exists('RDM_Database')) {
+            wp_send_json_error(__('Database class not available', 'restaurant-delivery-manager'));
+        }
+        
+        try {
+            $database = RDM_Database::instance();
+            $created_count = 0;
+            
+            // Get all users with delivery_agent role
+            $delivery_users = get_users(array(
+                'role' => 'delivery_agent',
+                'fields' => array('ID', 'display_name', 'user_email')
+            ));
+            
+            foreach ($delivery_users as $user) {
+                // Check if agent record exists
+                $existing_agent = $database->get_agent_by_user_id($user->ID);
+                
+                if (!$existing_agent) {
+                    // Create agent record with default values
+                    $phone = get_user_meta($user->ID, 'rdm_agent_phone', true) ?: '';
+                    $vehicle_type = get_user_meta($user->ID, 'rdm_vehicle_type', true) ?: 'bike';
+                    
+                    if (empty($phone)) {
+                        $phone = '000-000-0000'; // Default placeholder
+                    }
+                    
+                    $agent_id = $database->create_agent($user->ID, $phone, $vehicle_type);
+                    
+                    if ($agent_id) {
+                        $created_count++;
+                        error_log("RestroReach: Created agent record for user {$user->display_name} (ID: {$user->ID})");
+                    }
+                }
+            }
+            
+            wp_send_json_success(array(
+                'message' => sprintf(__('%d missing agent records created successfully.', 'restaurant-delivery-manager'), $created_count),
+                'created_count' => $created_count
+            ));
+            
+        } catch (Exception $e) {
+            error_log('RestroReach: Error creating missing agent records - ' . $e->getMessage());
+            wp_send_json_error(__('Error creating agent records: ', 'restaurant-delivery-manager') . $e->getMessage());
         }
     }
 }

@@ -319,11 +319,11 @@
      */
     function sendLocationUpdate(locationData) {
         return $.ajax({
-            url: rrmAgent.ajaxUrl,
+            url: rdmAgent.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'rdm_update_agent_location',
-                nonce: rrmAgent.nonce,
+                nonce: rdmAgent.nonce,
                 ...locationData
             },
             success: function(response) {
@@ -398,11 +398,11 @@
         $noOrders.hide();
 
         $.ajax({
-            url: rrmAgent.ajaxUrl,
+            url: rdmAgent.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'rdm_get_agent_orders',
-                nonce: rrmAgent.nonce
+                nonce: rdmAgent.nonce
             },
             success: function(response) {
                 $loading.hide();
@@ -564,11 +564,11 @@
      */
     function acceptOrder(orderId) {
         $.ajax({
-            url: rrmAgent.ajaxUrl,
+            url: rdmAgent.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'rdm_accept_order',
-                nonce: rrmAgent.nonce,
+                nonce: rdmAgent.nonce,
                 order_id: orderId
             },
             success: function(response) {
@@ -608,11 +608,11 @@
      */
     function sendOrderStatusUpdate(data) {
         return $.ajax({
-            url: rrmAgent.ajaxUrl,
+            url: rdmAgent.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'rdm_update_order_status',
-                nonce: rrmAgent.nonce,
+                nonce: rdmAgent.nonce,
                 ...data
             },
             success: function(response) {
@@ -1170,10 +1170,122 @@
     }
 
     // ========================================
+    // Login Form Initialization
+    // ========================================
+    
+    /**
+     * Initialize login form functionality
+     */
+    function initializeLoginForm() {
+        console.log('Initializing login form...');
+        
+        $('#rrm-agent-login-form').on('submit', function(e) {
+            e.preventDefault();
+            
+            const $form = $(this);
+            const $submitBtn = $form.find('button[type="submit"]');
+            const $errorDiv = $('#rrm-login-error');
+            
+            // Get form data
+            const formData = {
+                action: 'rdm_agent_login',
+                username: $('#rrm-login-username').val(),
+                password: $('#rrm-login-password').val(),
+                nonce: $form.find('input[name="nonce"]').val()
+            };
+            
+            // Validate inputs
+            if (!formData.username || !formData.password) {
+                showLoginError('Please fill in all fields.');
+                return;
+            }
+            
+            // Show loading state
+            $submitBtn.prop('disabled', true).text('Logging in...');
+            $errorDiv.hide();
+            
+            // Submit login request
+            $.ajax({
+                url: rdmAgent.ajaxUrl,
+                type: 'POST',
+                data: formData,
+                dataType: 'json',
+                timeout: 10000,
+                success: function(response) {
+                    if (response.success) {
+                        // Successful login
+                        showToast('Login successful! Redirecting...', 'success');
+                        
+                        // Store login state for offline detection
+                        storeOfflineData('login_state', {
+                            logged_in: true,
+                            timestamp: Date.now()
+                        });
+                        
+                        // Redirect to dashboard
+                        setTimeout(function() {
+                            window.location.href = response.data.redirect || rdmAgent.dashboardUrl;
+                        }, 1000);
+                        
+                    } else {
+                        showLoginError(response.data.message || 'Login failed. Please try again.');
+                        $submitBtn.prop('disabled', false).text('Login');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Login AJAX error:', error);
+                    
+                    let errorMessage = 'Connection error. Please check your internet connection and try again.';
+                    
+                    if (status === 'timeout') {
+                        errorMessage = 'Login timeout. Please try again.';
+                    } else if (xhr.status === 403) {
+                        errorMessage = 'Access denied. Please check your credentials.';
+                    } else if (xhr.status === 500) {
+                        errorMessage = 'Server error. Please try again later.';
+                    }
+                    
+                    showLoginError(errorMessage);
+                    $submitBtn.prop('disabled', false).text('Login');
+                }
+            });
+        });
+        
+        // Auto-focus username field
+        $('#rrm-login-username').focus();
+        
+        // Handle Enter key in password field
+        $('#rrm-login-password').on('keypress', function(e) {
+            if (e.which === 13) {
+                $('#rrm-agent-login-form').submit();
+            }
+        });
+    }
+    
+    /**
+     * Show login error message
+     */
+    function showLoginError(message) {
+        const $errorDiv = $('#rrm-login-error');
+        $errorDiv.text(message).show();
+        
+        // Auto-hide after 5 seconds
+        setTimeout(function() {
+            $errorDiv.fadeOut();
+        }, 5000);
+    }
+
+    // ========================================
     // jQuery Document Ready
     // ========================================
 
     $(document).ready(function() {
+        // Check if we're on login page
+        if ($('#rrm-agent-login-form').length > 0) {
+            initializeLoginForm();
+            return; // Don't initialize dashboard on login page
+        }
+        
         // Initialize main functionality
         init();
         
@@ -1196,7 +1308,7 @@
             localStorage.removeItem('rdm_queue');
             
             // Redirect to login
-            window.location.href = rrmAgent.loginUrl;
+            window.location.href = rdmAgent.loginUrl;
         });
 
         // Emergency button

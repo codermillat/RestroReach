@@ -60,7 +60,7 @@ class RDM_Mobile_Frontend {
      */
     public function check_rewrite_rules() {
         $rules_version = get_option('rdm_rewrite_rules_version', '0');
-        $current_version = '1.0.1'; // Increment this when rules change
+        $current_version = '1.0.3'; // Increment this when rules change
         
         if ($rules_version !== $current_version) {
             flush_rewrite_rules(false);
@@ -76,6 +76,7 @@ class RDM_Mobile_Frontend {
         add_rewrite_rule('^delivery-agent/login/?$', 'index.php?rdm_agent_page=login', 'top');
         add_rewrite_rule('^delivery-agent/dashboard/?$', 'index.php?rdm_agent_page=dashboard', 'top');
         add_rewrite_rule('^delivery-agent/?$', 'index.php?rdm_agent_page=login', 'top'); // Default to login
+        add_rewrite_rule('^manifest\.json$', 'index.php?rdm_manifest=1', 'top');
     }
 
     /**
@@ -83,6 +84,7 @@ class RDM_Mobile_Frontend {
      */
     public function add_query_vars($vars) {
         $vars[] = 'rdm_agent_page';
+        $vars[] = 'rdm_manifest';
         return $vars;
     }
 
@@ -91,7 +93,12 @@ class RDM_Mobile_Frontend {
      */
     public function template_loader() {
         $page = get_query_var('rdm_agent_page');
-        if ($page === 'login') {
+        $manifest = get_query_var('rdm_manifest');
+        
+        if ($manifest) {
+            $this->serve_manifest();
+            exit;
+        } elseif ($page === 'login') {
             include plugin_dir_path(__FILE__) . '../templates/mobile/login-page.php';
             exit;
         } elseif ($page === 'dashboard') {
@@ -111,9 +118,9 @@ class RDM_Mobile_Frontend {
     public function enqueue_assets() {
         $page = get_query_var('rdm_agent_page');
         if ($page === 'login' || $page === 'dashboard') {
-                    wp_enqueue_style('rdm-mobile-agent', plugin_dir_url(__FILE__) . '../assets/css/rdm-mobile-agent.css', array(), '1.0.0');
-        wp_enqueue_script('rdm-mobile-agent', plugin_dir_url(__FILE__) . '../assets/js/rdm-mobile-agent.js', array('jquery'), '1.0.0', true);
-            wp_enqueue_script('rdm-service-worker-registration', plugin_dir_url(__FILE__) . '../assets/js/service-worker-registration.js', array('rdm-mobile-agent'), '1.0.0', true);
+                    wp_enqueue_style('rdm-mobile-agent', plugin_dir_url(__FILE__) . '../assets/css/rdm-mobile-agent.css', array(), '1.0.1');
+        wp_enqueue_script('rdm-mobile-agent', plugin_dir_url(__FILE__) . '../assets/js/rdm-mobile-agent.js', array('jquery'), '1.0.1', true);
+            wp_enqueue_script('rdm-service-worker-registration', plugin_dir_url(__FILE__) . '../assets/js/service-worker-registration.js', array('rdm-mobile-agent'), '1.0.1', true);
                          wp_localize_script('rdm-mobile-agent', 'rdmAgent', array(
                 'ajaxUrl' => admin_url('admin-ajax.php'),
                 'nonce' => wp_create_nonce('rdm_agent_mobile'),
@@ -184,7 +191,7 @@ class RDM_Mobile_Frontend {
         }
         
         // Check if user has delivery agent role
-        if (!user_can($user, 'delivery_agent')) {
+        if (!user_can($user, 'rdm_access_agent_portal')) {
             wp_send_json_error(array('message' => __('You are not authorized as a delivery agent.', 'restaurant-delivery-manager')));
         }
         
@@ -236,7 +243,7 @@ class RDM_Mobile_Frontend {
             
             if ($session_data && isset($session_data['user_id'])) {
                 $user = get_userdata($session_data['user_id']);
-                if ($user && user_can($user, 'delivery_agent')) {
+                if ($user && user_can($user, 'rdm_access_agent_portal')) {
                     // Check if session is not expired and IP matches
                     if ($session_data['created'] > (time() - 3600) && 
                         $session_data['ip'] === ($_SERVER['REMOTE_ADDR'] ?? '')) {
@@ -699,7 +706,7 @@ class RDM_Mobile_Frontend {
     }
 
     /**
-     * Add PWA meta tags to mobile agent pages
+     * Add PWA meta tags to the head
      */
     public function add_pwa_meta_tags() {
         $page = get_query_var('rdm_agent_page');
@@ -733,6 +740,25 @@ class RDM_Mobile_Frontend {
             <meta name="MobileOptimized" content="320">
             <?php
         }
+    }
+    
+    /**
+     * Serve the manifest.json file
+     */
+    private function serve_manifest() {
+        $manifest_path = plugin_dir_path(__FILE__) . '../manifest.json';
+        
+        if (!file_exists($manifest_path)) {
+            status_header(404);
+            return;
+        }
+        
+        // Set proper headers
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: public, max-age=3600'); // Cache for 1 hour
+        
+        // Read and output the manifest file
+        readfile($manifest_path);
     }
 }
 

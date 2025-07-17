@@ -2,9 +2,9 @@
   "name": "RestroReach Agent",
   "short_name": "RestroReach",
   "description": "Professional delivery agent interface for restaurant delivery management",
-  "version": "1.0.0",
-  "start_url": "/wp-admin/admin.php?page=rdm-agent-dashboard",
-  "scope": "/",
+  "version": "1.0.1",
+  "start_url": "/delivery-agent/dashboard",
+  "scope": "/delivery-agent/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "theme_color": "#2271b1",
@@ -14,51 +14,9 @@
   
   "icons": [
     {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-72x72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-96x96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-128x128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-144x144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-152x152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-384x384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/base-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ],
@@ -67,24 +25,24 @@
     {
       "name": "My Orders",
       "short_name": "Orders",
-      "url": "/wp-admin/admin.php?page=rdm-agent-dashboard#orders",
+      "url": "/delivery-agent/dashboard#orders",
       "icons": [
         {
-          "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/shortcut-orders.png",
-          "sizes": "96x96",
-          "type": "image/png"
+          "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/base-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     },
     {
-      "name": "Go Online",
-      "short_name": "Online",
-      "url": "/wp-admin/admin.php?page=rdm-agent-dashboard#status",
+      "name": "Login",
+      "short_name": "Login",
+      "url": "/delivery-agent/login",
       "icons": [
         {
-          "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/shortcut-online.png",
-          "sizes": "96x96",
-          "type": "image/png"
+          "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/base-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     }
@@ -96,30 +54,8 @@
     "lifestyle"
   ],
   
-  "screenshots": [
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/screenshot-wide.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    },
-    {
-      "src": "/wp-content/plugins/restaurant-delivery-manager/assets/images/screenshot-narrow.png",
-      "sizes": "640x1136",
-      "type": "image/png",
-      "form_factor": "narrow"
-    }
-  ],
-  
   "prefer_related_applications": false,
   "edge_side_panel": {
     "preferred_width": 400
-  },
-  
-  "protocol_handlers": [
-    {
-      "protocol": "web+restroreach",
-      "url": "/wp-admin/admin.php?page=rdm-agent-dashboard&action=%s"
-    }
-  ]
+  }
 } 

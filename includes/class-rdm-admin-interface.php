@@ -576,6 +576,41 @@ class RDM_Admin_Interface {
             'restroreach-settings',
             'rdm_integrations_section'
         );
+        
+        // Contact Information Settings Section
+        add_settings_section(
+            'rdm_contact_settings_section',
+            __('Contact & Emergency Settings', 'restaurant-delivery-manager'),
+            array($this, 'contact_settings_section_callback'),
+            'restroreach-settings'
+        );
+        
+        // Emergency Phone field
+        add_settings_field(
+            'rdm_emergency_phone',
+            __('Emergency Contact Phone', 'restaurant-delivery-manager'),
+            array($this, 'emergency_phone_callback'),
+            'restroreach-settings',
+            'rdm_contact_settings_section'
+        );
+        
+        // Support Phone field
+        add_settings_field(
+            'rdm_support_phone',
+            __('Customer Support Phone', 'restaurant-delivery-manager'),
+            array($this, 'support_phone_callback'),
+            'restroreach-settings',
+            'rdm_contact_settings_section'
+        );
+        
+        // Support Email field
+        add_settings_field(
+            'rdm_support_email',
+            __('Customer Support Email', 'restaurant-delivery-manager'),
+            array($this, 'support_email_callback'),
+            'restroreach-settings',
+            'rdm_contact_settings_section'
+        );
     }
 
     /**
@@ -601,6 +636,19 @@ class RDM_Admin_Interface {
         // Maps Center Address
         if (isset($input['rdm_maps_center_address'])) {
             $sanitized_input['rdm_maps_center_address'] = sanitize_text_field($input['rdm_maps_center_address']);
+        }
+        
+        // Emergency Contact Settings
+        if (isset($input['rdm_emergency_phone'])) {
+            $sanitized_input['rdm_emergency_phone'] = sanitize_text_field($input['rdm_emergency_phone']);
+        }
+        
+        if (isset($input['rdm_support_phone'])) {
+            $sanitized_input['rdm_support_phone'] = sanitize_text_field($input['rdm_support_phone']);
+        }
+        
+        if (isset($input['rdm_support_email'])) {
+            $sanitized_input['rdm_support_email'] = sanitize_email($input['rdm_support_email']);
         }
         
         return $sanitized_input;
@@ -812,6 +860,66 @@ class RDM_Admin_Interface {
         
         return isset($descriptions[$zoom_level]) ? $descriptions[$zoom_level] : __('Custom', 'restaurant-delivery-manager');
     }
+    
+    /**
+     * Callback for the contact settings section description
+     *
+     * @return void
+     */
+    public function contact_settings_section_callback(): void {
+        echo '<p>' . esc_html__('Configure contact information and emergency numbers for agents and customers.', 'restaurant-delivery-manager') . '</p>';
+    }
+    
+    /**
+     * Callback for the emergency phone field
+     *
+     * @return void
+     */
+    public function emergency_phone_callback(): void {
+        $options = get_option('rdm_plugin_options', array());
+        $emergency_phone = isset($options['rdm_emergency_phone']) ? $options['rdm_emergency_phone'] : '';
+        
+        printf(
+            '<input type="tel" id="rdm_emergency_phone" name="rdm_plugin_options[rdm_emergency_phone]" value="%s" class="regular-text" placeholder="%s" />',
+            esc_attr($emergency_phone),
+            esc_attr__('e.g., +1-555-911 or 911', 'restaurant-delivery-manager')
+        );
+        echo '<p class="description">' . esc_html__('Emergency contact number for delivery agents in case of accidents or safety concerns.', 'restaurant-delivery-manager') . '</p>';
+    }
+    
+    /**
+     * Callback for the support phone field
+     *
+     * @return void
+     */
+    public function support_phone_callback(): void {
+        $options = get_option('rdm_plugin_options', array());
+        $support_phone = isset($options['rdm_support_phone']) ? $options['rdm_support_phone'] : get_option('woocommerce_store_phone', '');
+        
+        printf(
+            '<input type="tel" id="rdm_support_phone" name="rdm_plugin_options[rdm_support_phone]" value="%s" class="regular-text" placeholder="%s" />',
+            esc_attr($support_phone),
+            esc_attr__('e.g., +1-555-123-4567', 'restaurant-delivery-manager')
+        );
+        echo '<p class="description">' . esc_html__('Customer support phone number shown on order tracking pages. Defaults to WooCommerce store phone if not set.', 'restaurant-delivery-manager') . '</p>';
+    }
+    
+    /**
+     * Callback for the support email field
+     *
+     * @return void
+     */
+    public function support_email_callback(): void {
+        $options = get_option('rdm_plugin_options', array());
+        $support_email = isset($options['rdm_support_email']) ? $options['rdm_support_email'] : get_option('admin_email', '');
+        
+        printf(
+            '<input type="email" id="rdm_support_email" name="rdm_plugin_options[rdm_support_email]" value="%s" class="regular-text" placeholder="%s" />',
+            esc_attr($support_email),
+            esc_attr__('e.g., support@yourrestaurant.com', 'restaurant-delivery-manager')
+        );
+        echo '<p class="description">' . esc_html__('Customer support email address shown on order tracking pages. Defaults to WordPress admin email if not set.', 'restaurant-delivery-manager') . '</p>';
+    }
 
     /**
      * Render Agent Portal page (placeholder)
@@ -857,7 +965,7 @@ class RDM_Admin_Interface {
         
         // Verify agent exists and has delivery agent capability
         $agent_user = get_userdata($agent_id);
-        if (!$agent_user || !user_can($agent_user, 'delivery_agent')) {
+        if (!$agent_user || !user_can($agent_user, 'rdm_access_agent_portal')) {
             echo '<div class="wrap">';
             echo '<h1>' . esc_html__('Agent Live View', 'restaurant-delivery-manager') . '</h1>';
             echo '<div class="notice notice-error"><p>' . esc_html__('Invalid agent ID or user is not a delivery agent.', 'restaurant-delivery-manager') . '</p></div>';
@@ -1015,7 +1123,7 @@ class RDM_Admin_Interface {
     private function render_agent_dropdown(int $selected_agent_id = 0): void {
         // Get all delivery agents
         $agents = get_users(array(
-            'capability' => 'delivery_agent',
+            'role' => 'delivery_agent',
             'fields' => array('ID', 'display_name', 'user_email'),
             'orderby' => 'display_name',
             'order' => 'ASC'

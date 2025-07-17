@@ -31,7 +31,7 @@ global $wpdb;
 $reconciliation_table = $wpdb->prefix . 'rr_cash_reconciliation';
 $agents_table = $wpdb->prefix . 'rr_delivery_agents';
 
-$pending_reconciliations = $wpdb->get_results($wpdb->prepare(
+$pending_reconciliations = $wpdb->get_results(
     "SELECT r.*, u.display_name as agent_name
      FROM $reconciliation_table r
      INNER JOIN $agents_table a ON r.agent_id = a.id
@@ -39,7 +39,7 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
      WHERE r.status IN ('pending', 'submitted')
      ORDER BY r.reconciliation_date DESC
      LIMIT 10"
-));
+);
 
 ?>
 <div class="wrap rdm-admin-page">
@@ -56,10 +56,10 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
         <div class="rdm-stat-card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #007cba;">
             <h3 style="margin: 0 0 10px; color: #333; font-size: 16px;"><?php esc_html_e("Today's Payments", 'restaurant-delivery-manager'); ?></h3>
             <div style="font-size: 24px; font-weight: 600; color: #007cba; margin-bottom: 10px;">
-                <?php echo wc_price($today_stats['total_collected']); ?>
+                <?php echo wc_price($today_stats['summary']['total_collected']); ?>
             </div>
             <div style="font-size: 14px; color: #666;">
-                <?php echo sprintf(__('%d transactions', 'restaurant-delivery-manager'), $today_stats['total_transactions']); ?>
+                <?php echo sprintf(__('%d transactions', 'restaurant-delivery-manager'), $today_stats['summary']['total_transactions']); ?>
             </div>
         </div>
 
@@ -67,10 +67,10 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
         <div class="rdm-stat-card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #28a745;">
             <h3 style="margin: 0 0 10px; color: #333; font-size: 16px;"><?php esc_html_e("Yesterday's Payments", 'restaurant-delivery-manager'); ?></h3>
             <div style="font-size: 24px; font-weight: 600; color: #28a745; margin-bottom: 10px;">
-                <?php echo wc_price($yesterday_stats['total_collected']); ?>
+                <?php echo wc_price($yesterday_stats['summary']['total_collected']); ?>
             </div>
             <div style="font-size: 14px; color: #666;">
-                <?php echo sprintf(__('%d transactions', 'restaurant-delivery-manager'), $yesterday_stats['total_transactions']); ?>
+                <?php echo sprintf(__('%d transactions', 'restaurant-delivery-manager'), $yesterday_stats['summary']['total_transactions']); ?>
             </div>
         </div>
 
@@ -78,10 +78,14 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
         <div class="rdm-stat-card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #ffc107;">
             <h3 style="margin: 0 0 10px; color: #333; font-size: 16px;"><?php esc_html_e('COD Pending', 'restaurant-delivery-manager'); ?></h3>
             <div style="font-size: 24px; font-weight: 600; color: #ffc107; margin-bottom: 10px;">
-                <?php echo wc_price($today_stats['by_status']['pending']['amount'] ?? 0); ?>
+                <?php 
+                // Calculate pending amount from pending count and average order value
+                $pending_amount = ($today_stats['summary']['pending_count'] ?? 0) * ($today_stats['summary']['avg_order_value'] ?? 0);
+                echo wc_price($pending_amount); 
+                ?>
             </div>
             <div style="font-size: 14px; color: #666;">
-                <?php echo sprintf(__('%d orders', 'restaurant-delivery-manager'), $today_stats['by_status']['pending']['count'] ?? 0); ?>
+                <?php echo sprintf(__('%d orders', 'restaurant-delivery-manager'), $today_stats['summary']['pending_count'] ?? 0); ?>
             </div>
         </div>
 
@@ -89,7 +93,7 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
         <div class="rdm-stat-card" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #dc3545;">
             <h3 style="margin: 0 0 10px; color: #333; font-size: 16px;"><?php esc_html_e("Today's Change", 'restaurant-delivery-manager'); ?></h3>
             <div style="font-size: 24px; font-weight: 600; color: #dc3545; margin-bottom: 10px;">
-                <?php echo wc_price($today_stats['total_change']); ?>
+                <?php echo wc_price($today_stats['summary']['total_change']); ?>
             </div>
             <div style="font-size: 14px; color: #666;">
                 <?php esc_html_e('Given to customers', 'restaurant-delivery-manager'); ?>
@@ -262,27 +266,27 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0;">
                     <div class="rdm-report-stat">
                         <div style="font-size: 14px; color: #666; margin-bottom: 5px;"><?php esc_html_e('Total Transactions', 'restaurant-delivery-manager'); ?></div>
-                        <div style="font-size: 20px; font-weight: 600; color: #333;"><?php echo esc_html($report_stats['total_transactions']); ?></div>
+                        <div style="font-size: 20px; font-weight: 600; color: #333;"><?php echo esc_html($report_stats['summary']['total_transactions']); ?></div>
                     </div>
                     
                     <div class="rdm-report-stat">
                         <div style="font-size: 14px; color: #666; margin-bottom: 5px;"><?php esc_html_e('Total Amount', 'restaurant-delivery-manager'); ?></div>
-                        <div style="font-size: 20px; font-weight: 600; color: #333;"><?php echo wc_price($report_stats['total_amount']); ?></div>
+                        <div style="font-size: 20px; font-weight: 600; color: #333;"><?php echo wc_price($report_stats['summary']['total_amount']); ?></div>
                     </div>
                     
                     <div class="rdm-report-stat">
                         <div style="font-size: 14px; color: #666; margin-bottom: 5px;"><?php esc_html_e('Total Collected', 'restaurant-delivery-manager'); ?></div>
-                        <div style="font-size: 20px; font-weight: 600; color: #007cba;"><?php echo wc_price($report_stats['total_collected']); ?></div>
+                        <div style="font-size: 20px; font-weight: 600; color: #007cba;"><?php echo wc_price($report_stats['summary']['total_collected']); ?></div>
                     </div>
                     
                     <div class="rdm-report-stat">
                         <div style="font-size: 14px; color: #666; margin-bottom: 5px;"><?php esc_html_e('Total Change', 'restaurant-delivery-manager'); ?></div>
-                        <div style="font-size: 20px; font-weight: 600; color: #dc3545;"><?php echo wc_price($report_stats['total_change']); ?></div>
+                        <div style="font-size: 20px; font-weight: 600; color: #dc3545;"><?php echo wc_price($report_stats['summary']['total_change']); ?></div>
                     </div>
                 </div>
 
                 <!-- Breakdown by Payment Type -->
-                <?php if (!empty($report_stats['by_type'])): ?>
+                <?php if (!empty($report_stats['summary']['by_type'])): ?>
                     <h4><?php esc_html_e('By Payment Type', 'restaurant-delivery-manager'); ?></h4>
                     <table class="wp-list-table widefat fixed striped" style="margin: 10px 0;">
                         <thead>
@@ -294,7 +298,7 @@ $pending_reconciliations = $wpdb->get_results($wpdb->prepare(
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($report_stats['by_type'] as $type => $data): ?>
+                            <?php foreach ($report_stats['summary']['by_type'] as $type => $data): ?>
                                 <tr>
                                     <td><?php echo esc_html(ucwords(str_replace('_', ' ', $type))); ?></td>
                                     <td><?php echo esc_html($data['count']); ?></td>

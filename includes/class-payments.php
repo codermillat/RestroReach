@@ -404,25 +404,25 @@ class RDM_Payments {
             $where_values = array();
             
             // Date range filter
-            $where_conditions[] = "DATE(created_at) >= %s";
+            $where_conditions[] = "DATE(pt.created_at) >= %s";
             $where_values[] = $date_from;
             
-            $where_conditions[] = "DATE(created_at) <= %s";
+            $where_conditions[] = "DATE(pt.created_at) <= %s";
             $where_values[] = $date_to;
             
             // Payment method filter
-            $where_conditions[] = "payment_type = %s";
+            $where_conditions[] = "pt.payment_type = %s";
             $where_values[] = $payment_method;
             
             // Agent filter
             if ($agent_id) {
-                $where_conditions[] = "agent_id = %d";
+                $where_conditions[] = "pt.agent_id = %d";
                 $where_values[] = $agent_id;
             }
             
             // Status filter
             if ($status) {
-                $where_conditions[] = "status = %s";
+                $where_conditions[] = "pt.status = %s";
                 $where_values[] = $status;
             }
             
@@ -432,16 +432,16 @@ class RDM_Payments {
             $summary_query = "
                 SELECT 
                     COUNT(*) as total_transactions,
-                    COUNT(CASE WHEN status = 'collected' THEN 1 END) as collected_count,
-                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
-                    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count,
-                    COALESCE(SUM(CASE WHEN status = 'collected' THEN amount ELSE 0 END), 0) as total_collected,
-                    COALESCE(SUM(CASE WHEN status = 'collected' THEN collected_amount ELSE 0 END), 0) as total_received,
-                    COALESCE(SUM(CASE WHEN status = 'collected' THEN change_amount ELSE 0 END), 0) as total_change,
-                    COALESCE(AVG(CASE WHEN status = 'collected' THEN amount ELSE NULL END), 0) as avg_order_value,
-                    COALESCE(MAX(amount), 0) as highest_order,
-                    COALESCE(MIN(CASE WHEN amount > 0 THEN amount ELSE NULL END), 0) as lowest_order
-                FROM {$payment_table}
+                    COUNT(CASE WHEN pt.status = 'collected' THEN 1 END) as collected_count,
+                    COUNT(CASE WHEN pt.status = 'pending' THEN 1 END) as pending_count,
+                    COUNT(CASE WHEN pt.status = 'failed' THEN 1 END) as failed_count,
+                    COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.amount ELSE 0 END), 0) as total_collected,
+                    COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.collected_amount ELSE 0 END), 0) as total_received,
+                    COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.change_amount ELSE 0 END), 0) as total_change,
+                    COALESCE(AVG(CASE WHEN pt.status = 'collected' THEN pt.amount ELSE NULL END), 0) as avg_order_value,
+                    COALESCE(MAX(pt.amount), 0) as highest_order,
+                    COALESCE(MIN(CASE WHEN pt.amount > 0 THEN pt.amount ELSE NULL END), 0) as lowest_order
+                FROM {$payment_table} pt
                 WHERE {$where_clause}
             ";
             
@@ -450,15 +450,15 @@ class RDM_Payments {
             // Get daily breakdown
             $daily_query = "
                 SELECT 
-                    DATE(created_at) as date,
+                    DATE(pt.created_at) as date,
                     COUNT(*) as transactions,
-                    COUNT(CASE WHEN status = 'collected' THEN 1 END) as collected,
-                    COALESCE(SUM(CASE WHEN status = 'collected' THEN amount ELSE 0 END), 0) as total_amount,
-                    COALESCE(SUM(CASE WHEN status = 'collected' THEN change_amount ELSE 0 END), 0) as total_change
-                FROM {$payment_table}
+                    COUNT(CASE WHEN pt.status = 'collected' THEN 1 END) as collected,
+                    COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.amount ELSE 0 END), 0) as total_amount,
+                    COALESCE(SUM(CASE WHEN pt.status = 'collected' THEN pt.change_amount ELSE 0 END), 0) as total_change
+                FROM {$payment_table} pt
                 WHERE {$where_clause}
-                GROUP BY DATE(created_at)
-                ORDER BY DATE(created_at) DESC
+                GROUP BY DATE(pt.created_at)
+                ORDER BY DATE(pt.created_at) DESC
                 LIMIT 30
             ";
             
