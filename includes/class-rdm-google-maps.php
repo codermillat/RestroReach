@@ -953,7 +953,7 @@ class RDM_Google_Maps {
                     rdmInitOrderTracking(<?php echo json_encode(array(
                         'orderId' => $order_id,
                         'zoom' => intval($atts['zoom']),
-                        'trackingKey' => $_GET['tracking_key'] ?? ''
+                        'trackingKey' => sanitize_text_field($_GET['tracking_key'] ?? '')
                     )); ?>);
                 }
             });

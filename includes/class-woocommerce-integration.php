@@ -267,7 +267,7 @@ class RDM_WooCommerce_Integration {
      * @return array Modified shipping methods
      */
     public function add_shipping_method(array $methods): array {
-        $methods['rdm_distance_based'] = 'RDM_Distance_Shipping';
+        $methods['rdm_distance_shipping'] = 'RDM_Distance_Shipping';
         return $methods;
     }
     

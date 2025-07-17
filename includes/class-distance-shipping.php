@@ -512,13 +512,4 @@ class RDM_Distance_Shipping extends WC_Shipping_Method {
     }
 }
 
-// Initialize the shipping method
-add_action('woocommerce_shipping_init', function() {
-    if (class_exists('WC_Shipping_Method')) {
-        // Register the shipping method
-        add_filter('woocommerce_shipping_methods', function($methods) {
-            $methods['rdm_distance_shipping'] = 'RDM_Distance_Shipping';
-            return $methods;
-        });
-    }
-}); 
+// Note: Shipping method registration is handled by RDM_WooCommerce_Integration class
